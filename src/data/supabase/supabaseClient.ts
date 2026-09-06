@@ -7,4 +7,6 @@ if (!url || !anonKey) {
   throw new Error('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be set')
 }
 
-export const supabase = createClient(url, anonKey)
+export const supabase = createClient(url, anonKey, {
+  auth: { flowType: 'pkce' },
+})

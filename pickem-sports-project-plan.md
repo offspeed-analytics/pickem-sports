@@ -12,7 +12,8 @@ A web app (with a possible future mobile app) for pick'em-style games with frien
 ## Infra Specifics
 
 - **Database & backend:** Supabase (Postgres + Auth + Realtime + Edge Functions), free tier.
-- **Frontend hosting:** GitHub Pages, serving a dynamic single-page app (not static content) that calls Supabase's API directly from the browser — no server of our own required.
+- **Frontend hosting:** Vercel, serving the single-page app that calls Supabase's API directly from the browser — no server of our own required.
+- **Scheduled jobs:** GitHub Actions cron (nightly score sync + auto-assign of missing picks), independent of frontend hosting, writing directly to Supabase.
 - **Login:** Full auth support via Supabase Auth, plus onboarding to set a username and choose a favorite team.
 - **Data model:** Standard OLTP tables — profiles, groups, group members, weeks, games, picks, tiebreaker predictions, and scores.
 - **Game & odds data:** Pulled from an external sports API and synced into our own `games` table.
