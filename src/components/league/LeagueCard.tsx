@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { dataClient } from '../../data'
+import { formatGameplayMode } from '../../lib/gameplayModes'
 import type { League } from '../../types/domain'
 
 async function shareInvite(league: League) {
@@ -46,6 +47,7 @@ export function LeagueCard({ league }: { league: League }) {
           {memberCountQuery.data ? `${memberCountQuery.data.length} members` : ' '}
         </span>
       </div>
+      <p className="text-sm text-slate-500">{formatGameplayMode(league.gameplayMode)}</p>
       <button
         type="button"
         onClick={handleInvite}
