@@ -1,0 +1,16 @@
+[
+  {
+    "id": "p-2025-reg-1",
+    "sport": "NFL",
+    "seasonYear": 2025,
+    "seasonType": "regular",
+    "periodNumber": 1
+  },
+  {
+    "id": "p-2026-reg-1",
+    "sport": "NFL",
+    "seasonYear": 2026,
+    "seasonType": "regular",
+    "periodNumber": 1
+  }
+]

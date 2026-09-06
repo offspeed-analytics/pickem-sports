@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+@theme {
+  --color-brand-navy: #132440; /* primary buttons, active nav */
+  --color-brand-blue: #16476a; /* primary hover state */
+  --color-brand-teal: #3b9797; /* reserved accent (e.g. confidence picking UI) */
+  --color-brand-crimson: #bf092f; /* error/alert text */
+}
+
+:root {
+  color-scheme: light; /* light-only for now; revisit with real dark: variants later */
+}
+
+body {
+  @apply bg-slate-50;
+}
