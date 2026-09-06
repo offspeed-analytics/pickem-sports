@@ -1,7 +1,10 @@
 import type { DataClient } from '../client'
-import type { Game, League, Period, Pick, Standing } from '../../types/domain'
+import type { Game, League, Period, Pick, Standing, Team } from '../../types/domain'
+import { generateInviteCode } from '../../lib/inviteCode'
+import { pickCurrentPeriod } from '../../lib/periods'
 import gamesFixture from './fixtures/games.json'
 import periodsFixture from './fixtures/periods.json'
+import teamsFixture from './fixtures/teams.json'
 
 const STORAGE_KEY = 'pickem_mock_v1'
 const LATENCY_MS = 150
@@ -39,15 +42,11 @@ function generateId(): string {
   return crypto.randomUUID()
 }
 
-function generateInviteCode(): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no ambiguous chars
-  return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join(
-    '',
-  )
-}
 
 const games = gamesFixture as Game[]
 const periods = periodsFixture as Period[]
+const periodsById = new Map(periods.map((p) => [p.id, p]))
+const teams = teamsFixture as Team[]
 
 function winningTeamId(game: Game): string | null {
   if (game.status !== 'final' || game.homeScore === null || game.awayScore === null) return null
@@ -105,6 +104,22 @@ export const mockClient: DataClient = {
 
   async getPeriods(sport) {
     return delay(periods.filter((p) => p.sport === sport))
+  },
+
+  async getCurrentPeriod(sport) {
+    const sportPeriods = periods.filter((p) => p.sport === sport)
+    const lastKickoffByPeriodId = new Map<string, string>()
+    for (const game of games) {
+      const existing = lastKickoffByPeriodId.get(game.periodId)
+      if (!existing || game.kickoffTime > existing) {
+        lastKickoffByPeriodId.set(game.periodId, game.kickoffTime)
+      }
+    }
+    return delay(pickCurrentPeriod(sportPeriods, lastKickoffByPeriodId))
+  },
+
+  async getTeams(sport) {
+    return delay(teams.filter((t) => t.sport === sport))
   },
 
   async getGamesForPeriod(periodId) {
@@ -173,29 +188,41 @@ export const mockClient: DataClient = {
     return delay(pick)
   },
 
-  async getStandings(leagueId) {
+  async getStandings(leagueId, seasonYear) {
     const state = loadState()
-    return delay(computeStandings(state, leagueId, () => true))
+    return delay(computeStandings(state, leagueId, seasonYear, () => true))
   },
 
-  async getMnfStandings(leagueId) {
+  async getMnfStandings(leagueId, seasonYear) {
     const state = loadState()
     return delay(
-      computeStandings(state, leagueId, (game) => game.broadcastWindow === 'monday_night'),
+      computeStandings(
+        state,
+        leagueId,
+        seasonYear,
+        (game) => game.broadcastWindow === 'monday_night',
+      ),
     )
   },
 }
 
+// Leagues persist across seasons, so standings are scored per season, not as a lifetime total.
 function computeStandings(
   state: PersistedState,
   leagueId: string,
+  seasonYear: number,
   gameFilter: (game: Game) => boolean,
 ): Standing[] {
   const members = state.leagueMembers.filter((m) => m.leagueId === leagueId)
   return members
     .map((member): Standing => {
       const totalPoints = state.picks
-        .filter((p) => p.leagueId === leagueId && p.userId === member.userId)
+        .filter(
+          (p) =>
+            p.leagueId === leagueId &&
+            p.userId === member.userId &&
+            periodsById.get(p.periodId)?.seasonYear === seasonYear,
+        )
         .reduce((sum, pick) => {
           const game = games.find((g) => g.id === pick.gameId)
           if (!game || !gameFilter(game)) return sum

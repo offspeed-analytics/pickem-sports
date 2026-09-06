@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { getErrorMessage } from '../lib/errors'
 
 export function LoginPage() {
   const { user, loading, signIn, signUp } = useAuth()
@@ -25,7 +26,7 @@ export function LoginPage() {
         setSignedUp(true)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setError(getErrorMessage(err))
     } finally {
       setSubmitting(false)
     }

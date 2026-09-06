@@ -1,5 +1,6 @@
 import type { DataClient } from './client'
 import { mockClient } from './mock/mockClient'
+import { supabaseDataClient } from './supabase/supabaseDataClient'
 
-// "supabase" case is added in Phase 6 alongside src/data/supabase/supabaseDataClient.ts.
-export const dataClient: DataClient = mockClient
+export const dataClient: DataClient =
+  import.meta.env.VITE_DATA_SOURCE === 'supabase' ? supabaseDataClient : mockClient

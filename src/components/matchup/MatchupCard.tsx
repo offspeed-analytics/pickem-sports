@@ -15,11 +15,13 @@ interface MatchupCardProps {
 
 function TeamButton({
   team,
+  record,
   selected,
   disabled,
   onClick,
 }: {
   team: Team
+  record: string | null
   selected: boolean
   disabled: boolean
   onClick: () => void
@@ -37,6 +39,7 @@ function TeamButton({
     >
       <img src={team.logoUrl} alt="" className="h-12 w-12 object-contain" />
       <span className="text-sm font-medium text-slate-900">{team.name}</span>
+      <span className="text-xs text-slate-500">{record ?? '—'}</span>
     </button>
   )
 }
@@ -59,13 +62,13 @@ export function MatchupCard({
       <div className="flex items-center gap-4">
         <TeamButton
           team={awayTeam}
+          record={game.awayRecord}
           selected={myPick?.pickedTeamId === awayTeam.id}
           disabled={locked}
           onClick={() => onPickTeam(awayTeam.id)}
         />
 
         <div className="flex w-32 shrink-0 flex-col items-center gap-1 text-center text-xs text-slate-500">
-          <span>{game.awayRecord ?? '—'}</span>
           <span className="font-medium text-slate-700">
             {kickoff.toLocaleString(undefined, {
               weekday: 'short',
@@ -75,7 +78,6 @@ export function MatchupCard({
           </span>
           {game.oddsSpread && <span>{game.oddsSpread}</span>}
           {game.oddsOverUnder && <span>O/U {game.oddsOverUnder}</span>}
-          <span>{game.homeRecord ?? '—'}</span>
           {locked && (
             <span className="mt-1 rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-500">
               Locked
@@ -85,6 +87,7 @@ export function MatchupCard({
 
         <TeamButton
           team={homeTeam}
+          record={game.homeRecord}
           selected={myPick?.pickedTeamId === homeTeam.id}
           disabled={locked}
           onClick={() => onPickTeam(homeTeam.id)}

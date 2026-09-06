@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { dataClient } from '../data'
 import { useAuth } from '../hooks/useAuth'
+import { getErrorMessage } from '../lib/errors'
 
 export function LeagueCreatePage() {
   const { user } = useAuth()
@@ -21,7 +22,7 @@ export function LeagueCreatePage() {
       await queryClient.invalidateQueries({ queryKey: ['leagues', 'mine', user!.id] })
       navigate('/leagues')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setError(getErrorMessage(err))
       setSubmitting(false)
     }
   }

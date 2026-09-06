@@ -68,18 +68,23 @@ create table picks (
 );
 create index idx_picks_user_league_period on picks (user_id, league_id, period_id);
 
+-- Leagues persist across seasons (members/invite code carry forward with no re-creation step —
+-- a pick just references whichever period it was made for), so standings must be scored PER
+-- SEASON, not as a lifetime total across every period the league has ever played.
 create view league_standings with (security_invoker = true) as
-  select league_id, user_id, sum(coalesce(points_earned, 0)) as total_points
-  from picks
-  group by league_id, user_id;
+  select p.league_id, p.user_id, pe.season_year, sum(coalesce(p.points_earned, 0)) as total_points
+  from picks p
+  join periods pe on pe.id = p.period_id
+  group by p.league_id, p.user_id, pe.season_year;
 
--- MNF tiebreaker: cumulative points a user earned specifically on Monday-night picks.
+-- MNF tiebreaker: cumulative points a user earned specifically on Monday-night picks, per season.
 create view mnf_standings with (security_invoker = true) as
-  select p.league_id, p.user_id, sum(coalesce(p.points_earned, 0)) as total_points
+  select p.league_id, p.user_id, pe.season_year, sum(coalesce(p.points_earned, 0)) as total_points
   from picks p
   join games g on g.id = p.game_id
+  join periods pe on pe.id = p.period_id
   where g.broadcast_window = 'monday_night'
-  group by p.league_id, p.user_id;
+  group by p.league_id, p.user_id, pe.season_year;
 
 -- Without security_invoker, views run as their owner and would bypass picks' RLS,
 -- leaking every league's standings to every authenticated user.
@@ -144,6 +149,13 @@ create policy "members can read their league roster" on league_members
       where m.league_id = league_members.league_id and m.user_id = auth.uid()
     )
   );
+-- Joining someone else's league only ever happens via join_league_with_code (security definer).
+-- This is narrower: it only lets an owner add themselves as the first member of their own league.
+create policy "owners can add themselves to their own league" on league_members
+  for insert with check (
+    user_id = auth.uid()
+    and exists (select 1 from leagues l where l.id = league_members.league_id and l.owner_id = auth.uid())
+  );
 
 -- Own picks are always visible; other members' picks unlock once that game has kicked off.
 create policy "users read their own picks" on picks
@@ -164,12 +176,12 @@ create policy "users update their own unlocked picks" on picks
   );
 
 -- With "Automatically expose new tables" off, these grants (not just the RLS policies above)
--- are required for the Data API to serve these tables/functions at all. league_members has no
--- insert grant: joining only ever happens inside join_league_with_code, which runs as the
--- function owner (security definer), not as the calling role.
+-- are required for the Data API to serve these tables/functions at all. league_members' insert
+-- grant only covers the owner-self-insert policy above; joining someone else's league still only
+-- happens inside join_league_with_code, which runs as the function owner (security definer).
 grant select on periods to authenticated;
 grant select on games to authenticated;
 grant select, insert on leagues to authenticated;
-grant select on league_members to authenticated;
+grant select, insert on league_members to authenticated;
 grant select, insert, update on picks to authenticated;
 grant execute on function join_league_with_code(text) to authenticated;

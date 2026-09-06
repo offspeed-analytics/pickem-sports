@@ -2,14 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { MatchupCard } from '../components/matchup/MatchupCard'
 import { dataClient } from '../data'
-import teamsFixture from '../data/mock/fixtures/teams.json'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriods } from '../hooks/usePeriods'
 import { useProfilesByIds } from '../hooks/useProfilesByIds'
 import { formatPeriodLabel, sortPeriodsDesc } from '../lib/periods'
-import type { Team } from '../types/domain'
-
-const teamsById = new Map((teamsFixture as Team[]).map((t) => [t.id, t]))
 
 function lowestUnusedConfidence(used: Set<number>, max: number): number {
   for (let i = 1; i <= max; i++) if (!used.has(i)) return i
@@ -35,6 +31,12 @@ export function WeekPicksPage() {
     enabled: !!periodId,
   })
 
+  const teamsQuery = useQuery({
+    queryKey: ['data-client-teams', 'NFL'],
+    queryFn: () => dataClient.getTeams('NFL'),
+  })
+  const teamsById = new Map((teamsQuery.data ?? []).map((t) => [t.id, t]))
+
   const picksQuery = useQuery({
     queryKey: ['my-picks', leagueId, periodId, user?.id],
     queryFn: () =>
@@ -56,7 +58,7 @@ export function WeekPicksPage() {
   const leaguePicks = (leaguePicksQuery.data ?? []).filter((p) => p.userId !== user?.id)
   const profiles = useProfilesByIds(leaguePicks.map((p) => p.userId)).data ?? new Map()
 
-  if (gamesQuery.isLoading || picksQuery.isLoading) {
+  if (gamesQuery.isLoading || picksQuery.isLoading || teamsQuery.isLoading) {
     return <p className="text-sm text-slate-500">Loading…</p>
   }
 

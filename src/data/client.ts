@@ -1,4 +1,4 @@
-import type { Game, League, Period, Pick, Standing } from '../types/domain'
+import type { Game, League, Period, Pick, Standing, Team } from '../types/domain'
 
 /**
  * Everything except auth (auth is real Supabase from Phase 2 onward; see hooks/useAuth.ts).
@@ -14,6 +14,12 @@ export interface DataClient {
   getLeagueMemberIds(leagueId: string): Promise<string[]>
 
   getPeriods(sport: 'NFL'): Promise<Period[]>
+  /** The period a user should currently be picking — not just "the latest one in the DB",
+   * since a full season's schedule can be synced far in advance. */
+  getCurrentPeriod(sport: 'NFL'): Promise<Period | undefined>
+  /** Teams as referenced by this client's own games/picks — a game's team ids only resolve
+   * against the matching source's teams (mock fixture ids vs. real Supabase UUIDs differ). */
+  getTeams(sport: 'NFL'): Promise<Team[]>
   getGamesForPeriod(periodId: string): Promise<Game[]>
 
   /** The requesting user's own picks for a period, regardless of lock state. */
@@ -29,6 +35,7 @@ export interface DataClient {
     confidenceValue: number
   }): Promise<Pick>
 
-  getStandings(leagueId: string): Promise<Standing[]>
-  getMnfStandings(leagueId: string): Promise<Standing[]>
+  /** Scored per season — a league persists across years, so standings must not be a lifetime total. */
+  getStandings(leagueId: string, seasonYear: number): Promise<Standing[]>
+  getMnfStandings(leagueId: string, seasonYear: number): Promise<Standing[]>
 }

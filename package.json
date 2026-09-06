@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "format": "prettier --write .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:games": "node --env-file=.env scripts/sync-games.mjs",
+    "sync:auto-assign": "node --env-file=.env scripts/auto-assign-picks.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.115.0",

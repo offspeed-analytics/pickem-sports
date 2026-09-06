@@ -87,20 +87,31 @@ function FavoriteTeamSection({ userId }: { userId: string }) {
 
   const [editedFavoriteTeamId, setEditedFavoriteTeamId] = useState<string | null>(null)
   const favoriteTeamId = editedFavoriteTeamId ?? currentFavoriteQuery.data ?? ''
-  const [status, setStatus] = useState<'idle' | 'success'>('idle')
+  const [status, setStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setStatus(null)
     setSubmitting(true)
-    await supabase
-      .from('profile_favorite_teams')
-      .upsert(
-        { user_id: userId, sport: 'NFL', team_id: favoriteTeamId },
-        { onConflict: 'user_id,sport' },
-      )
+    const { error } = favoriteTeamId
+      ? await supabase
+          .from('profile_favorite_teams')
+          .upsert(
+            { user_id: userId, sport: 'NFL', team_id: favoriteTeamId },
+            { onConflict: 'user_id,sport' },
+          )
+      : await supabase
+          .from('profile_favorite_teams')
+          .delete()
+          .eq('user_id', userId)
+          .eq('sport', 'NFL')
     setSubmitting(false)
-    setStatus('success')
+    if (error) {
+      setStatus({ type: 'error', message: error.message })
+      return
+    }
+    setStatus({ type: 'success', message: 'Favorite team updated.' })
   }
 
   return (
@@ -123,7 +134,11 @@ function FavoriteTeamSection({ userId }: { userId: string }) {
           ))}
         </select>
       </div>
-      {status === 'success' && <p className="text-sm text-green-600">Favorite team updated.</p>}
+      {status && (
+        <p className={`text-sm ${status.type === 'error' ? 'text-brand-crimson' : 'text-green-600'}`}>
+          {status.message}
+        </p>
+      )}
       <button
         type="submit"
         disabled={submitting}

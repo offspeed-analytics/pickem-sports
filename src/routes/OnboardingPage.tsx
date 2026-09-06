@@ -4,6 +4,7 @@ import { supabase } from '../data/supabase/supabaseClient'
 import { useAuth } from '../hooks/useAuth'
 import { useInvalidateProfile, useProfile } from '../hooks/useProfile'
 import { useTeams } from '../hooks/useTeams'
+import { getErrorMessage } from '../lib/errors'
 
 export function OnboardingPage() {
   const { user, loading: authLoading } = useAuth()
@@ -39,7 +40,7 @@ export function OnboardingPage() {
 
       invalidateProfile(user.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setError(getErrorMessage(err))
       setSubmitting(false)
     }
   }
