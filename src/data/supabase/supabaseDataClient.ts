@@ -252,6 +252,16 @@ export const supabaseDataClient: DataClient = {
     return toPick(data)
   },
 
+  async swapConfidence({ leagueId, periodId, gameId, confidenceValue }) {
+    const { error } = await supabase.rpc('swap_pick_confidence', {
+      p_league_id: leagueId,
+      p_period_id: periodId,
+      p_game_id: gameId,
+      p_new_value: confidenceValue,
+    })
+    if (error) throw error
+  },
+
   async getStandings(leagueId, seasonYear) {
     const { data, error } = await supabase
       .from('league_standings')

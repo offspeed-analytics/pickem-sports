@@ -34,6 +34,15 @@ export interface DataClient {
     pickedTeamId: string
     confidenceValue: number
   }): Promise<Pick>
+  /** Reassigns gameId's confidence value, swapping with whichever game currently holds it (if any)
+   * so every value from 1..gameCount stays used exactly once — never leaves a game unranked. */
+  swapConfidence(input: {
+    userId: string
+    leagueId: string
+    periodId: string
+    gameId: string
+    confidenceValue: number
+  }): Promise<void>
 
   /** Scored per season — a league persists across years, so standings must not be a lifetime total. */
   getStandings(leagueId: string, seasonYear: number): Promise<Standing[]>

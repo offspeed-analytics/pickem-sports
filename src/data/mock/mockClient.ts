@@ -188,6 +188,34 @@ export const mockClient: DataClient = {
     return delay(pick)
   },
 
+  async swapConfidence({ userId, leagueId, periodId, gameId, confidenceValue }) {
+    const state = loadState()
+    const pick = state.picks.find(
+      (p) => p.userId === userId && p.leagueId === leagueId && p.periodId === periodId && p.gameId === gameId,
+    )
+    if (!pick) throw new Error('No existing pick for this game')
+    if (pick.confidenceValue === confidenceValue) return delay(undefined)
+
+    const otherPick = state.picks.find(
+      (p) =>
+        p.userId === userId &&
+        p.leagueId === leagueId &&
+        p.periodId === periodId &&
+        p.confidenceValue === confidenceValue &&
+        p.gameId !== gameId,
+    )
+    if (otherPick) {
+      const otherGame = games.find((g) => g.id === otherPick.gameId)
+      if (otherGame && new Date(otherGame.kickoffTime).getTime() <= Date.now()) {
+        throw new Error('That value belongs to a game that has already locked and cannot be swapped')
+      }
+      otherPick.confidenceValue = pick.confidenceValue
+    }
+    pick.confidenceValue = confidenceValue
+    saveState(state)
+    return delay(undefined)
+  },
+
   async getStandings(leagueId, seasonYear) {
     const state = loadState()
     return delay(computeStandings(state, leagueId, seasonYear, () => true))

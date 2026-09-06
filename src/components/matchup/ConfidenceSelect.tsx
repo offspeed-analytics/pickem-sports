@@ -26,9 +26,9 @@ export function ConfidenceSelect({
         Points
       </option>
       {options.map((n) => (
-        <option key={n} value={n} disabled={usedValues.has(n) && n !== value}>
+        <option key={n} value={n}>
           {n}
-          {usedValues.has(n) && n !== value ? ' (used)' : ''}
+          {usedValues.has(n) && n !== value ? ' (already selected)' : ''}
         </option>
       ))}
     </select>

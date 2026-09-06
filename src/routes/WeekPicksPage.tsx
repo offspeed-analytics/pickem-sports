@@ -5,6 +5,7 @@ import { dataClient } from '../data'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriods } from '../hooks/usePeriods'
 import { useProfilesByIds } from '../hooks/useProfilesByIds'
+import { getErrorMessage } from '../lib/errors'
 import { formatPeriodLabel, sortPeriodsDesc } from '../lib/periods'
 
 function lowestUnusedConfidence(used: Set<number>, max: number): number {
@@ -50,6 +51,14 @@ export function WeekPicksPage() {
       queryClient.invalidateQueries({ queryKey: ['my-picks', leagueId, periodId, user?.id] }),
   })
 
+  const swapConfidence = useMutation({
+    mutationFn: dataClient.swapConfidence,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['my-picks', leagueId, periodId, user?.id] }),
+  })
+
+  const pickError = submitPick.error ?? swapConfidence.error
+
   const leaguePicksQuery = useQuery({
     queryKey: ['league-picks', leagueId, periodId],
     queryFn: () => dataClient.getLeaguePicksForPeriod({ leagueId: leagueId!, periodId: periodId! }),
@@ -81,14 +90,11 @@ export function WeekPicksPage() {
   }
 
   function handleSetConfidence(gameId: string, value: number) {
-    const existing = picksByGameId.get(gameId)
-    if (!existing) return
-    submitPick.mutate({
+    swapConfidence.mutate({
       userId: user!.id,
       leagueId: leagueId!,
       periodId: periodId!,
       gameId,
-      pickedTeamId: existing.pickedTeamId,
       confidenceValue: value,
     })
   }
@@ -120,6 +126,12 @@ export function WeekPicksPage() {
           <span />
         )}
       </div>
+
+      {pickError && (
+        <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          {getErrorMessage(pickError)}
+        </p>
+      )}
 
       <div className="space-y-3">
         {[...games]
