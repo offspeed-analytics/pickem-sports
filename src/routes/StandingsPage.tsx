@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
+import { LeagueTabs } from '../components/league/LeagueTabs'
 import { StandingsTable } from '../components/standings/StandingsTable'
 import { dataClient } from '../data'
 import { useAuth } from '../hooks/useAuth'
+import { useCurrentPeriod } from '../hooks/useCurrentPeriod'
 import { usePeriods } from '../hooks/usePeriods'
 import { useProfilesByIds } from '../hooks/useProfilesByIds'
 import { formatGameplayMode } from '../lib/gameplayModes'
@@ -23,6 +25,9 @@ export function StandingsPage() {
   // A league persists across seasons, so standings default to whichever season is most current.
   const periodsQuery = usePeriods('NFL')
   const currentSeasonYear = periodsQuery.data ? sortPeriodsDesc(periodsQuery.data)[0]?.seasonYear : undefined
+
+  // For the Picks/League picks tabs, which need a specific week in their URL.
+  const currentPeriodQuery = useCurrentPeriod('NFL')
 
   const standingsQuery = useQuery({
     queryKey: ['standings', leagueId, currentSeasonYear],
@@ -60,9 +65,11 @@ export function StandingsPage() {
 
   return (
     <div className="space-y-4">
+      <LeagueTabs leagueId={leagueId!} periodId={currentPeriodQuery.data?.id} />
+
       <div className="flex items-baseline justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Standings</h1>
+          <h1 className="text-xl font-semibold text-slate-900">{league?.name ?? 'League'}</h1>
           {league && <p className="text-sm text-slate-500">{formatGameplayMode(league.gameplayMode)}</p>}
         </div>
         {currentSeasonYear && <span className="text-sm text-slate-500">{currentSeasonYear} season</span>}

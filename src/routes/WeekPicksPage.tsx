@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
+import { LeagueTabs } from '../components/league/LeagueTabs'
 import { MatchupCard } from '../components/matchup/MatchupCard'
 import { dataClient } from '../data'
 import { useAuth } from '../hooks/useAuth'
@@ -101,6 +102,8 @@ export function WeekPicksPage() {
 
   return (
     <div>
+      <LeagueTabs leagueId={leagueId!} periodId={periodId} />
+
       <div className="mb-4 flex items-center justify-between">
         {previousPeriod ? (
           <Link

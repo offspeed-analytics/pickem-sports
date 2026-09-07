@@ -5,6 +5,7 @@ import { useProfile } from './hooks/useProfile'
 import { LeagueCreatePage } from './routes/LeagueCreatePage'
 import { LeagueJoinPage } from './routes/LeagueJoinPage'
 import { LeagueListPage } from './routes/LeagueListPage'
+import { LeaguePicksComparisonPage } from './routes/LeaguePicksComparisonPage'
 import { LoginPage } from './routes/LoginPage'
 import { OnboardingPage } from './routes/OnboardingPage'
 import { SettingsPage } from './routes/SettingsPage'
@@ -43,6 +44,10 @@ function App() {
             <Route path="/leagues/new" element={<LeagueCreatePage />} />
             <Route path="/leagues/join" element={<LeagueJoinPage />} />
             <Route path="/leagues/:leagueId/weeks/:weekNumber" element={<WeekPicksPage />} />
+            <Route
+              path="/leagues/:leagueId/league-picks/:weekNumber"
+              element={<LeaguePicksComparisonPage />}
+            />
             <Route path="/leagues/:leagueId/standings" element={<StandingsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

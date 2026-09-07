@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { dataClient } from '../../data'
+import { useCurrentPeriod } from '../../hooks/useCurrentPeriod'
 import { formatGameplayMode } from '../../lib/gameplayModes'
 import type { League } from '../../types/domain'
 
@@ -24,10 +25,7 @@ export function LeagueCard({ league }: { league: League }) {
     queryKey: ['league-member-ids', league.id],
     queryFn: () => dataClient.getLeagueMemberIds(league.id),
   })
-  const currentPeriodQuery = useQuery({
-    queryKey: ['current-period', league.sport],
-    queryFn: () => dataClient.getCurrentPeriod(league.sport),
-  })
+  const currentPeriodQuery = useCurrentPeriod(league.sport)
   const currentPeriod = currentPeriodQuery.data
   const [copied, setCopied] = useState(false)
 
