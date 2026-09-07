@@ -34,20 +34,29 @@ export function StandingsPage() {
     queryFn: () => dataClient.getMnfStandings(leagueId!, currentSeasonYear!),
     enabled: !!leagueId && currentSeasonYear !== undefined,
   })
+  // Standings rows only exist for picks visible under RLS (your own, or others' once locked), so a
+  // member with nothing visible yet would otherwise not appear at all — list every member and
+  // default to 0 rather than silently dropping them from the table.
+  const memberIdsQuery = useQuery({
+    queryKey: ['league-member-ids', leagueId],
+    queryFn: () => dataClient.getLeagueMemberIds(leagueId!),
+    enabled: !!leagueId,
+  })
 
-  const profiles = useProfilesByIds(standingsQuery.data?.map((s) => s.userId) ?? []).data ?? new Map()
+  const profiles = useProfilesByIds(memberIdsQuery.data ?? []).data ?? new Map()
 
-  if (standingsQuery.isLoading || mnfStandingsQuery.isLoading) {
+  if (standingsQuery.isLoading || mnfStandingsQuery.isLoading || memberIdsQuery.isLoading) {
     return <p className="text-sm text-slate-500">Loading…</p>
   }
 
+  const pointsByUser = new Map((standingsQuery.data ?? []).map((s) => [s.userId, s.totalPoints]))
   const mnfPointsByUser = new Map((mnfStandingsQuery.data ?? []).map((s) => [s.userId, s.totalPoints]))
-  const rankedRows = [...(standingsQuery.data ?? [])]
+  const rankedRows = (memberIdsQuery.data ?? [])
+    .map((userId) => ({ userId, points: pointsByUser.get(userId) ?? 0 }))
     .sort((a, b) => {
-      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints
+      if (b.points !== a.points) return b.points - a.points
       return (mnfPointsByUser.get(b.userId) ?? 0) - (mnfPointsByUser.get(a.userId) ?? 0)
     })
-    .map((s) => ({ userId: s.userId, points: s.totalPoints }))
 
   return (
     <div className="space-y-4">
