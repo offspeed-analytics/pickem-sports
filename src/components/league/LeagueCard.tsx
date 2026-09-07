@@ -6,7 +6,7 @@ import { formatGameplayMode } from '../../lib/gameplayModes'
 import type { League } from '../../types/domain'
 
 async function shareInvite(league: League) {
-  const text = `Join my "${league.name}" pick'em league! Use invite code ${league.inviteCode} at ${window.location.origin}/leagues/join`
+  const text = `Join my "${league.name}" pick'em league! Use invite code ${league.inviteCode} at ${window.location.origin}/#/leagues/join`
   if (navigator.share) {
     try {
       await navigator.share({ title: "Join my pick'em league", text })
