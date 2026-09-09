@@ -8,7 +8,7 @@ interface MatchupCardProps {
   awayTeam: Team
   gameCount: number
   myPick: Pick | undefined
-  usedConfidenceValues: Set<number>
+  usedConfidenceValues: Map<number, string>
   onPickTeam: (teamId: string) => void
   onSetConfidence: (value: number) => void
 }

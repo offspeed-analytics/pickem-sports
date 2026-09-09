@@ -58,6 +58,15 @@ export function LeaguePicksComparisonPage() {
       .map((p) => [`${p.gameId}:${p.userId}`, p]),
   )
   const members = memberIdsQuery.data ?? []
+  const totalByUser = new Map(
+    members.map((userId) => [
+      userId,
+      lockedGames.reduce(
+        (sum, game) => sum + (pickByGameAndUser.get(`${game.id}:${userId}`)?.pointsEarned ?? 0),
+        0,
+      ),
+    ]),
+  )
 
   return (
     <div>
@@ -95,7 +104,7 @@ export function LeaguePicksComparisonPage() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-sm">
+          <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left text-slate-500">
                 <th className="p-3 font-medium">Game</th>
@@ -110,10 +119,26 @@ export function LeaguePicksComparisonPage() {
               {lockedGames.map((game) => {
                 const homeTeam = teamsById.get(game.homeTeamId)
                 const awayTeam = teamsById.get(game.awayTeamId)
+                const kickoff = new Date(game.kickoffTime)
                 return (
                   <tr key={game.id} className="border-t border-slate-100">
                     <td className="whitespace-nowrap p-3 font-medium text-slate-900">
-                      {awayTeam?.abbreviation ?? '?'} @ {homeTeam?.abbreviation ?? '?'}
+                      <div>
+                        {awayTeam?.abbreviation ?? '?'} @ {homeTeam?.abbreviation ?? '?'}
+                      </div>
+                      <div className="text-xs font-normal text-slate-400">
+                        {kickoff.toLocaleString(undefined, {
+                          weekday: 'short',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                      {game.status === 'final' && game.homeScore !== null && game.awayScore !== null && (
+                        <div className="text-xs font-normal text-slate-500">
+                          {awayTeam?.abbreviation} {game.awayScore} - {game.homeScore}{' '}
+                          {homeTeam?.abbreviation} Final
+                        </div>
+                      )}
                     </td>
                     {members.map((userId) => {
                       const pick = pickByGameAndUser.get(`${game.id}:${userId}`)
@@ -121,9 +146,24 @@ export function LeaguePicksComparisonPage() {
                       return (
                         <td key={userId} className="whitespace-nowrap p-3 text-slate-900">
                           {pickedTeam ? (
-                            <span>
-                              {pickedTeam.abbreviation}{' '}
+                            <span className="flex items-center gap-1.5">
+                              <img
+                                src={pickedTeam.logoUrl}
+                                alt={pickedTeam.abbreviation}
+                                title={pickedTeam.abbreviation}
+                                className="h-5 w-5 object-contain"
+                              />
                               <span className="text-slate-400">({pick!.confidenceValue})</span>
+                              {pick!.pointsEarned !== null &&
+                                (pick!.pointsEarned > 0 ? (
+                                  <span className="font-bold text-green-600" aria-label="Correct">
+                                    ✓
+                                  </span>
+                                ) : (
+                                  <span className="font-bold text-red-600" aria-label="Incorrect">
+                                    ✗
+                                  </span>
+                                ))}
                             </span>
                           ) : (
                             <span className="text-slate-300">—</span>
@@ -135,6 +175,16 @@ export function LeaguePicksComparisonPage() {
                 )
               })}
             </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-slate-200">
+                <td className="p-3 font-semibold text-slate-900">Total</td>
+                {members.map((userId) => (
+                  <td key={userId} className="p-3 font-semibold text-slate-900">
+                    {totalByUser.get(userId) ?? 0} pts
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}

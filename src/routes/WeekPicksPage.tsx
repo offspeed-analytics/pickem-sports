@@ -9,7 +9,7 @@ import { useProfilesByIds } from '../hooks/useProfilesByIds'
 import { getErrorMessage } from '../lib/errors'
 import { formatPeriodLabel, sortPeriodsDesc } from '../lib/periods'
 
-function lowestUnusedConfidence(used: Set<number>, max: number): number {
+function lowestUnusedConfidence(used: Map<number, string>, max: number): number {
   for (let i = 1; i <= max; i++) if (!used.has(i)) return i
   return max
 }
@@ -75,7 +75,19 @@ export function WeekPicksPage() {
   const games = gamesQuery.data ?? []
   const picks = picksQuery.data ?? []
   const picksByGameId = new Map(picks.map((p) => [p.gameId, p]))
-  const usedConfidenceValues = new Set(picks.map((p) => p.confidenceValue))
+  const gamesById = new Map(games.map((g) => [g.id, g]))
+  // Maps a used confidence value to "picked team over opponent" so re-picking that value shows
+  // what it would bump, instead of just an opaque "already selected".
+  const usedConfidenceValues = new Map<number, string>()
+  for (const pick of picks) {
+    const game = gamesById.get(pick.gameId)
+    const pickedTeam = teamsById.get(pick.pickedTeamId)
+    if (!game || !pickedTeam) continue
+    const opponentTeamId = pick.pickedTeamId === game.homeTeamId ? game.awayTeamId : game.homeTeamId
+    const opponentTeam = teamsById.get(opponentTeamId)
+    if (!opponentTeam) continue
+    usedConfidenceValues.set(pick.confidenceValue, `${pickedTeam.abbreviation} over ${opponentTeam.abbreviation}`)
+  }
 
   function handlePickTeam(gameId: string, teamId: string) {
     const existing = picksByGameId.get(gameId)
@@ -129,6 +141,15 @@ export function WeekPicksPage() {
           <span />
         )}
       </div>
+
+      <details className="mb-4 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
+        <summary className="cursor-pointer font-medium text-slate-700">How scoring works</summary>
+        <p className="mt-2">
+          Pick the winner of each game, then rank your confidence in that pick — 1 is your least
+          confident, and the highest number is your most confident. Get it right, you earn those
+          points. Get it wrong, you earn zero.
+        </p>
+      </details>
 
       {pickError && (
         <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">

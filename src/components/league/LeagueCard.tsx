@@ -2,9 +2,25 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { dataClient } from '../../data'
+import { useAuth } from '../../hooks/useAuth'
 import { useCurrentPeriod } from '../../hooks/useCurrentPeriod'
 import { formatGameplayMode } from '../../lib/gameplayModes'
 import type { League } from '../../types/domain'
+
+function ordinal(n: number): string {
+  const rem100 = n % 100
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`
+  switch (n % 10) {
+    case 1:
+      return `${n}st`
+    case 2:
+      return `${n}nd`
+    case 3:
+      return `${n}rd`
+    default:
+      return `${n}th`
+  }
+}
 
 async function shareInvite(league: League) {
   const text = `Join my "${league.name}" pick'em league! Use invite code ${league.inviteCode} at ${window.location.origin}/#/leagues/join`
@@ -21,6 +37,7 @@ async function shareInvite(league: League) {
 }
 
 export function LeagueCard({ league }: { league: League }) {
+  const { user } = useAuth()
   const memberCountQuery = useQuery({
     queryKey: ['league-member-ids', league.id],
     queryFn: () => dataClient.getLeagueMemberIds(league.id),
@@ -28,6 +45,24 @@ export function LeagueCard({ league }: { league: League }) {
   const currentPeriodQuery = useCurrentPeriod(league.sport)
   const currentPeriod = currentPeriodQuery.data
   const [copied, setCopied] = useState(false)
+
+  // Standings only have rows for members with a scored pick, so members are looked up
+  // separately and defaulted to 0 — otherwise a member with nothing scored yet would throw
+  // off the rank (or be missing from it entirely) rather than just sitting in last place.
+  const standingsQuery = useQuery({
+    queryKey: ['standings', league.id, currentPeriod?.seasonYear],
+    queryFn: () => dataClient.getStandings(league.id, currentPeriod!.seasonYear),
+    enabled: !!currentPeriod,
+  })
+  const myStanding = (() => {
+    if (!user || !memberCountQuery.data || !standingsQuery.data) return undefined
+    const pointsByUser = new Map(standingsQuery.data.map((s) => [s.userId, s.totalPoints]))
+    const ranked = memberCountQuery.data
+      .map((userId) => ({ userId, points: pointsByUser.get(userId) ?? 0 }))
+      .sort((a, b) => b.points - a.points)
+    const rankIndex = ranked.findIndex((r) => r.userId === user.id)
+    return rankIndex === -1 ? undefined : { rank: rankIndex + 1, points: ranked[rankIndex].points }
+  })()
 
   async function handleInvite() {
     const didCopy = await shareInvite(league)
@@ -53,15 +88,35 @@ export function LeagueCard({ league }: { league: League }) {
       >
         {copied ? 'Copied invite!' : 'Invite'}
       </button>
-      <div className="mt-3 flex gap-3 text-sm font-medium">
-        {currentPeriod && (
-          <Link to={`/leagues/${league.id}/weeks/${currentPeriod.id}`} className="text-brand-blue hover:underline">
-            Make picks
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          {currentPeriod && (
+            <>
+              <Link
+                to={`/leagues/${league.id}/weeks/${currentPeriod.id}`}
+                className="text-brand-blue hover:underline"
+              >
+                Make picks
+              </Link>
+              <span className="text-slate-300">|</span>
+              <Link
+                to={`/leagues/${league.id}/league-picks/${currentPeriod.id}`}
+                className="text-brand-blue hover:underline"
+              >
+                League picks
+              </Link>
+              <span className="text-slate-300">|</span>
+            </>
+          )}
+          <Link to={`/leagues/${league.id}/standings`} className="text-brand-blue hover:underline">
+            Standings
           </Link>
+        </div>
+        {myStanding && (
+          <span className="whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+            {ordinal(myStanding.rank)} Place: {myStanding.points} pts
+          </span>
         )}
-        <Link to={`/leagues/${league.id}/standings`} className="text-brand-blue hover:underline">
-          Standings
-        </Link>
       </div>
     </div>
   )

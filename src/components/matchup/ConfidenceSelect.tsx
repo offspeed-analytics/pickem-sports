@@ -1,7 +1,8 @@
 interface ConfidenceSelectProps {
   gameCount: number
   value: number | null
-  usedValues: Set<number>
+  /** Confidence value -> "picked team over opponent" for the game currently holding it. */
+  usedValues: Map<number, string>
   disabled: boolean
   onChange: (value: number) => void
 }
@@ -25,12 +26,15 @@ export function ConfidenceSelect({
       <option value="" disabled>
         Points
       </option>
-      {options.map((n) => (
-        <option key={n} value={n}>
-          {n}
-          {usedValues.has(n) && n !== value ? ' (already selected)' : ''}
-        </option>
-      ))}
+      {options.map((n) => {
+        const usedFor = usedValues.get(n)
+        return (
+          <option key={n} value={n}>
+            {n}
+            {usedFor && n !== value ? ` (${usedFor})` : ''}
+          </option>
+        )
+      })}
     </select>
   )
 }

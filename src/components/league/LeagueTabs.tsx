@@ -20,7 +20,7 @@ export function LeagueTabs({ leagueId, periodId }: LeagueTabsProps) {
       {periodId ? (
         <>
           <NavLink to={`/leagues/${leagueId}/weeks/${periodId}`} className={tabClass}>
-            Picks
+            Make picks
           </NavLink>
           <NavLink to={`/leagues/${leagueId}/league-picks/${periodId}`} className={tabClass}>
             League picks
@@ -28,7 +28,7 @@ export function LeagueTabs({ leagueId, periodId }: LeagueTabsProps) {
         </>
       ) : (
         <>
-          <span className={disabledTabClass}>Picks</span>
+          <span className={disabledTabClass}>Make picks</span>
           <span className={disabledTabClass}>League picks</span>
         </>
       )}
