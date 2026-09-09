@@ -43,7 +43,73 @@ function generateId(): string {
 }
 
 
-const games = gamesFixture as Game[]
+/**
+ * The synced fixture's "current" period always has every kickoff in the future relative to
+ * whenever it was captured (accurate to the real schedule at sync time), which means mock mode
+ * would otherwise never have a locked game to test scoring or the league-picks comparison
+ * against until the real season actually starts. Re-time that period's games relative to
+ * whenever the app is actually run instead: the first half already kicked off and finished
+ * (deterministic scores, so a test run is reproducible), the rest stay upcoming so picking an
+ * open game is still testable too.
+ */
+const TESTABLE_CURRENT_PERIOD_ID = 'p-2026-reg-1'
+
+function buildGames(): Game[] {
+  const raw = gamesFixture as Game[]
+  const currentPeriodGames = raw.filter((g) => g.periodId === TESTABLE_CURRENT_PERIOD_ID)
+  const lockedCount = Math.ceil(currentPeriodGames.length / 2)
+  return raw.map((game) => {
+    if (game.periodId !== TESTABLE_CURRENT_PERIOD_ID) return game
+    const position = currentPeriodGames.findIndex((g) => g.id === game.id)
+    const isLocked = position < lockedCount
+    const hoursFromNow = (isLocked ? position - lockedCount : position - lockedCount + 1) * 3
+    const kickoffTime = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000).toISOString()
+    if (!isLocked) return { ...game, kickoffTime }
+    return {
+      ...game,
+      kickoffTime,
+      status: 'final',
+      homeScore: 14 + ((position * 7) % 21),
+      awayScore: 10 + ((position * 11) % 24),
+    }
+  })
+}
+
+/**
+ * A handful of fake members auto-seeded into every league created in mock mode, with a full
+ * set of picks for the current period. Without this there'd be no way to test the league-picks
+ * comparison or standings locally — a fresh mock league otherwise only ever has the one real
+ * (signed-in) member. See the matching special-case in useProfilesByIds for how their names
+ * resolve without a real Supabase profiles row.
+ */
+export const MOCK_TEST_PROFILES: Record<string, { username: string; favoriteTeamLogoUrl: string | null }> = {
+  'mock-test-member-1': { username: 'Ashley (test)', favoriteTeamLogoUrl: null },
+  'mock-test-member-2': { username: 'Jordan (test)', favoriteTeamLogoUrl: null },
+  'mock-test-member-3': { username: 'Sam (test)', favoriteTeamLogoUrl: null },
+}
+
+function seedTestMembers(state: PersistedState, leagueId: string) {
+  const periodGames = games.filter((g) => g.periodId === TESTABLE_CURRENT_PERIOD_ID)
+  Object.keys(MOCK_TEST_PROFILES).forEach((userId, memberIndex) => {
+    state.leagueMembers.push({ leagueId, userId })
+    periodGames.forEach((game, gameIndex) => {
+      const pickHome = (gameIndex + memberIndex) % 2 === 0
+      state.picks.push({
+        id: generateId(),
+        userId,
+        leagueId,
+        periodId: TESTABLE_CURRENT_PERIOD_ID,
+        gameId: game.id,
+        pickedTeamId: pickHome ? game.homeTeamId : game.awayTeamId,
+        confidenceValue: ((gameIndex + memberIndex * 5) % periodGames.length) + 1,
+        isAutoAssigned: false,
+        pointsEarned: null,
+      })
+    })
+  })
+}
+
+const games = buildGames()
 const periods = periodsFixture as Period[]
 const periodsById = new Map(periods.map((p) => [p.id, p]))
 const teams = teamsFixture as Team[]
@@ -58,6 +124,18 @@ function pointsForPick(pick: Pick, game: Game): number | null {
   const winner = winningTeamId(game)
   if (winner === null) return game.status === 'final' ? 0 : null
   return pick.pickedTeamId === winner ? pick.confidenceValue : 0
+}
+
+/**
+ * The real backend scores a pick via a DB trigger the moment its game goes final, so
+ * `pointsEarned` is always up to date by the time a client reads it. The mock only ever writes
+ * `pointsEarned: null` at submit time, so picks are scored on the way out here instead — same
+ * result, just computed on read rather than persisted on write.
+ */
+function withComputedPoints(pick: Pick): Pick {
+  const game = games.find((g) => g.id === pick.gameId)
+  if (!game) return pick
+  return { ...pick, pointsEarned: pointsForPick(pick, game) }
 }
 
 export const mockClient: DataClient = {
@@ -79,6 +157,7 @@ export const mockClient: DataClient = {
     }
     state.leagues.push(league)
     state.leagueMembers.push({ leagueId: league.id, userId: ownerId })
+    seedTestMembers(state, league.id)
     saveState(state)
     return delay(league)
   },
@@ -129,9 +208,9 @@ export const mockClient: DataClient = {
   async getMyPicksForPeriod({ leagueId, periodId, userId }) {
     const state = loadState()
     return delay(
-      state.picks.filter(
-        (p) => p.leagueId === leagueId && p.periodId === periodId && p.userId === userId,
-      ),
+      state.picks
+        .filter((p) => p.leagueId === leagueId && p.periodId === periodId && p.userId === userId)
+        .map(withComputedPoints),
     )
   },
 
@@ -144,7 +223,8 @@ export const mockClient: DataClient = {
         .filter((p) => {
           const game = games.find((g) => g.id === p.gameId)
           return game ? new Date(game.kickoffTime).getTime() <= now : false
-        }),
+        })
+        .map(withComputedPoints),
     )
   },
 
