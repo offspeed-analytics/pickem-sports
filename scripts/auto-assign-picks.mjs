@@ -4,8 +4,12 @@
 // .github/workflows/auto-assign-picks.yml, or locally with:
 //   node --env-file=.env scripts/auto-assign-picks.mjs
 //
-// Only looks at games that locked within the last LOOKBACK_HOURS — not all of history — so a
-// member who joined after a game already passed never gets a retroactive auto-pick for it.
+// Only looks at games that locked within the last LOOKBACK_HOURS — not all of history — as a
+// backstop against a missed/late run. The real guarantee that a member never gets credit for a
+// game they weren't around for comes from the per-member `joined_at` check below: a league
+// owner's league_members row is inserted atomically with the league itself (see
+// 0005_create_league_rpc.sql), so joined_at is always >= the league's created_at — checking it
+// alone covers both "league existed yet" and "this member had joined yet".
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -28,7 +32,7 @@ async function main() {
 
   const { data: lockedGames, error: gamesError } = await supabase
     .from('games')
-    .select('id, period_id, home_team_id, away_team_id')
+    .select('id, period_id, home_team_id, away_team_id, kickoff_time')
     .lte('kickoff_time', now.toISOString())
     .gte('kickoff_time', lookbackStart)
   if (gamesError) throw gamesError
@@ -57,7 +61,7 @@ async function main() {
   for (const league of leagues) {
     const { data: members, error: membersError } = await supabase
       .from('league_members')
-      .select('user_id')
+      .select('user_id, joined_at')
       .eq('league_id', league.id)
     if (membersError) throw membersError
     if (!members.length) continue
@@ -85,9 +89,13 @@ async function main() {
         const userPicks = picksByUser.get(member.user_id) ?? []
         const pickedGameIds = new Set(userPicks.map((p) => p.game_id))
         const usedValues = new Set(userPicks.map((p) => p.confidence_value))
+        const joinedAt = new Date(member.joined_at)
 
         for (const game of gamesInPeriod) {
           if (pickedGameIds.has(game.id)) continue
+          // Game locked before this member joined the league — they were never able to pick
+          // it, so don't credit (or fault) them with an auto-assigned guess for it.
+          if (new Date(game.kickoff_time) < joinedAt) continue
           const available = []
           for (let v = 1; v <= gameCount; v++) if (!usedValues.has(v)) available.push(v)
           if (available.length === 0) continue // shouldn't happen; don't crash the run over it
