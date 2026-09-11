@@ -18,12 +18,14 @@ function TeamButton({
   record,
   selected,
   disabled,
+  resultIcon,
   onClick,
 }: {
   team: Team
   record: string | null
   selected: boolean
   disabled: boolean
+  resultIcon?: 'correct' | 'incorrect' | null
   onClick: () => void
 }) {
   return (
@@ -31,12 +33,22 @@ function TeamButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`flex min-w-0 flex-1 flex-col items-center gap-2 rounded-md border-2 p-3 text-center transition-colors ${
+      className={`relative flex min-w-0 flex-1 flex-col items-center gap-2 rounded-md border-2 p-3 text-center transition-colors ${
         selected
           ? 'border-brand-navy bg-brand-navy/5'
           : 'border-transparent hover:border-slate-200'
       } disabled:cursor-not-allowed disabled:opacity-60`}
     >
+      {resultIcon && (
+        <span
+          className={`absolute right-1.5 top-1.5 text-base font-bold ${
+            resultIcon === 'correct' ? 'text-green-600' : 'text-red-600'
+          }`}
+          aria-label={resultIcon === 'correct' ? 'Correct' : 'Incorrect'}
+        >
+          {resultIcon === 'correct' ? '✓' : '✗'}
+        </span>
+      )}
       <img src={team.logoUrl} alt="" className="h-12 w-12 object-contain" />
       <span className="text-sm font-medium text-slate-900">{team.name}</span>
       <span className="text-xs text-slate-500">{record ?? '—'}</span>
@@ -56,6 +68,12 @@ export function MatchupCard({
 }: MatchupCardProps) {
   const locked = isGameLocked(game)
   const kickoff = new Date(game.kickoffTime)
+  const resultIcon: 'correct' | 'incorrect' | null =
+    game.status === 'final' && myPick?.pointsEarned != null
+      ? myPick.pointsEarned > 0
+        ? 'correct'
+        : 'incorrect'
+      : null
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -65,6 +83,7 @@ export function MatchupCard({
           record={game.awayRecord}
           selected={myPick?.pickedTeamId === awayTeam.id}
           disabled={locked}
+          resultIcon={myPick?.pickedTeamId === awayTeam.id ? resultIcon : null}
           onClick={() => onPickTeam(awayTeam.id)}
         />
 
@@ -78,10 +97,16 @@ export function MatchupCard({
           </span>
           {game.oddsSpread && <span>{game.oddsSpread}</span>}
           {game.oddsOverUnder && <span>O/U {game.oddsOverUnder}</span>}
-          {locked && (
+          {game.status === 'final' && game.homeScore !== null && game.awayScore !== null ? (
             <span className="mt-1 rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-500">
-              Locked
+              Final {game.awayScore}-{game.homeScore}
             </span>
+          ) : (
+            locked && (
+              <span className="mt-1 rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-500">
+                Locked
+              </span>
+            )
           )}
         </div>
 
@@ -90,6 +115,7 @@ export function MatchupCard({
           record={game.homeRecord}
           selected={myPick?.pickedTeamId === homeTeam.id}
           disabled={locked}
+          resultIcon={myPick?.pickedTeamId === homeTeam.id ? resultIcon : null}
           onClick={() => onPickTeam(homeTeam.id)}
         />
       </div>

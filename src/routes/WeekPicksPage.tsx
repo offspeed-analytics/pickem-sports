@@ -5,7 +5,6 @@ import { MatchupCard } from '../components/matchup/MatchupCard'
 import { dataClient } from '../data'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriods } from '../hooks/usePeriods'
-import { useProfilesByIds } from '../hooks/useProfilesByIds'
 import { getErrorMessage } from '../lib/errors'
 import { formatPeriodLabel, sortPeriodsDesc } from '../lib/periods'
 
@@ -59,14 +58,6 @@ export function WeekPicksPage() {
   })
 
   const pickError = submitPick.error ?? swapConfidence.error
-
-  const leaguePicksQuery = useQuery({
-    queryKey: ['league-picks', leagueId, periodId],
-    queryFn: () => dataClient.getLeaguePicksForPeriod({ leagueId: leagueId!, periodId: periodId! }),
-    enabled: !!leagueId && !!periodId,
-  })
-  const leaguePicks = (leaguePicksQuery.data ?? []).filter((p) => p.userId !== user?.id)
-  const profiles = useProfilesByIds(leaguePicks.map((p) => p.userId)).data ?? new Map()
 
   if (gamesQuery.isLoading || picksQuery.isLoading || teamsQuery.isLoading) {
     return <p className="text-sm text-slate-500">Loading…</p>
@@ -179,43 +170,6 @@ export function WeekPicksPage() {
             )
           })}
       </div>
-
-      {leaguePicks.length > 0 && (
-        <div className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 font-semibold text-slate-900">League picks (locked games)</h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-500">
-                <th className="pb-2 font-medium">Member</th>
-                <th className="pb-2 font-medium">Game</th>
-                <th className="pb-2 font-medium">Pick</th>
-                <th className="pb-2 text-right font-medium">Confidence</th>
-              </tr>
-            </thead>
-            <tbody>
-              {leaguePicks.map((pick) => {
-                const game = games.find((g) => g.id === pick.gameId)
-                const pickedTeam = teamsById.get(pick.pickedTeamId)
-                if (!game || !pickedTeam) return null
-                const homeTeam = teamsById.get(game.homeTeamId)
-                const awayTeam = teamsById.get(game.awayTeamId)
-                return (
-                  <tr key={pick.id} className="border-t border-slate-100">
-                    <td className="py-2 font-medium text-slate-900">
-                      {profiles.get(pick.userId)?.username ?? 'Unknown'}
-                    </td>
-                    <td className="py-2 text-slate-500">
-                      {awayTeam?.abbreviation} @ {homeTeam?.abbreviation}
-                    </td>
-                    <td className="py-2 text-slate-900">{pickedTeam.abbreviation}</td>
-                    <td className="py-2 text-right text-slate-900">{pick.confidenceValue}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   )
 }
