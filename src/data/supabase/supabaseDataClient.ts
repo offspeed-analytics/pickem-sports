@@ -1,5 +1,15 @@
 import type { DataClient } from '../client'
-import type { BroadcastWindow, Game, League, Period, Pick, SeasonType, Standing, Team } from '../../types/domain'
+import type {
+  BroadcastWindow,
+  Game,
+  League,
+  Period,
+  Pick,
+  PickOutcome,
+  SeasonType,
+  Standing,
+  Team,
+} from '../../types/domain'
 import { pickCurrentPeriod } from '../../lib/periods'
 import { supabase } from './supabaseClient'
 
@@ -58,6 +68,7 @@ interface PickRow {
   confidence_value: number
   is_auto_assigned: boolean
   points_earned: number | null
+  pick_outcome: PickOutcome
 }
 
 function toTeam(row: TeamRow): Team {
@@ -124,11 +135,12 @@ function toPick(row: PickRow): Pick {
     confidenceValue: row.confidence_value,
     isAutoAssigned: row.is_auto_assigned,
     pointsEarned: row.points_earned,
+    outcome: row.pick_outcome,
   }
 }
 
 const PICK_COLUMNS =
-  'id, user_id, league_id, period_id, game_id, picked_team_id, confidence_value, is_auto_assigned, points_earned'
+  'id, user_id, league_id, period_id, game_id, picked_team_id, confidence_value, is_auto_assigned, points_earned, pick_outcome'
 
 export const supabaseDataClient: DataClient = {
   async getMyLeagues() {
@@ -230,6 +242,22 @@ export const supabaseDataClient: DataClient = {
       .eq('period_id', periodId)
     if (error) throw error
     return data.map(toPick)
+  },
+
+  async getPicksForPeriods({ userId, leagueId, periodIds }) {
+    let query = supabase.from('picks').select(PICK_COLUMNS).eq('user_id', userId).in('period_id', periodIds)
+    if (leagueId) query = query.eq('league_id', leagueId)
+    const { data, error } = await query
+    if (error) throw error
+    return data.map(toPick)
+  },
+
+  async getPickedSeasons({ userId, leagueId }) {
+    let query = supabase.from('user_pick_seasons').select('season_year').eq('user_id', userId)
+    if (leagueId) query = query.eq('league_id', leagueId)
+    const { data, error } = await query
+    if (error) throw error
+    return data.map((row) => row.season_year)
   },
 
   async submitPick({ userId, leagueId, periodId, gameId, pickedTeamId, confidenceValue }) {

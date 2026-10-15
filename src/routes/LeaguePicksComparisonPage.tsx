@@ -154,8 +154,8 @@ export function LeaguePicksComparisonPage() {
                                 className="h-5 w-5 object-contain"
                               />
                               <span className="text-slate-400">({pick!.confidenceValue})</span>
-                              {pick!.pointsEarned !== null &&
-                                (pick!.pointsEarned > 0 ? (
+                              {pick!.outcome !== 'pending' &&
+                                (pick!.outcome === 'correct' ? (
                                   <span className="font-bold text-green-600" aria-label="Correct">
                                     ✓
                                   </span>
