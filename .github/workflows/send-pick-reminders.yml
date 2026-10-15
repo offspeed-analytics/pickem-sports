@@ -1,0 +1,24 @@
+name: Send pick reminders
+
+on:
+  schedule:
+    - cron: '0 * * * *' # hourly, to catch the reminder window transition promptly
+  workflow_dispatch:
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node scripts/send-pick-reminders.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_SENDER_EMAIL: ${{ secrets.BREVO_SENDER_EMAIL }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          REMINDER_WINDOW_HOURS: '24'
