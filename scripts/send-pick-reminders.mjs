@@ -383,10 +383,14 @@ async function main() {
   }
 
   const userIds = [...entriesByUser.keys()]
+  if (!userIds.length) {
+    console.log('Everyone is fully picked for the current week; nobody to remind.')
+    return
+  }
   const { data: profileRows, error: profilesError } = await supabase
     .from('profiles')
     .select('id, username')
-    .in('id', userIds.length ? userIds : [null])
+    .in('id', userIds)
   if (profilesError) throw profilesError
   const usernameById = new Map(profileRows.map((p) => [p.id, p.username]))
 
