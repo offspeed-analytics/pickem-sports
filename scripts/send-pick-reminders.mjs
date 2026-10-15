@@ -67,15 +67,71 @@ function periodLabel(period) {
   return `${period.season_year} ${kind} ${period.period_number}`
 }
 
-function formatKickoff(kickoffTime) {
+// The league plays in Pacific time regardless of where this script runs -- pinning the zone
+// matters because GitHub Actions runners are UTC, unlike a developer's own machine, where this
+// would otherwise silently show the wrong time only once deployed.
+const LEAGUE_TIMEZONE = 'America/Los_Angeles'
+
+// Used once, in the intro sentence, so the reader knows what zone every other time in the email
+// is implicitly in -- e.g. "5:25 PM PDT".
+function formatTimeWithZone(date) {
   return new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',
-  }).format(new Date(kickoffTime))
+    timeZone: LEAGUE_TIMEZONE,
+  }).format(date)
+}
+
+// Used in the per-day listing, where the zone is already established -- terser, e.g. "10AM" or
+// "5:25PM" (no ":00" for on-the-hour slots, no space before AM/PM).
+function formatTimeOfDay(date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hourCycle: 'h12',
+    timeZone: LEAGUE_TIMEZONE,
+  }).formatToParts(date)
+  const hour = parts.find((p) => p.type === 'hour').value
+  const minute = parts.find((p) => p.type === 'minute').value
+  const dayPeriod = parts.find((p) => p.type === 'dayPeriod').value.toUpperCase()
+  return minute === '00' ? `${hour}${dayPeriod}` : `${hour}:${minute}${dayPeriod}`
+}
+
+function formatWeekday(date) {
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: LEAGUE_TIMEZONE }).format(
+    date,
+  )
+}
+
+// e.g. "Thursday, October 15"
+function formatDayHeader(date) {
+  const weekday = formatWeekday(date)
+  const monthDay = new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    day: 'numeric',
+    timeZone: LEAGUE_TIMEZONE,
+  }).format(date)
+  return `${weekday}, ${monthDay}`
+}
+
+// Sortable calendar-day key in league-local time, e.g. "2026-10-18" -- grouping must bucket by
+// the LOCAL date, since a late-night kickoff can fall on a different UTC date.
+function dayKey(date) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: LEAGUE_TIMEZONE }).format(date)
+}
+
+// "today (Thursday)" / "tomorrow (Thursday)" / "Thursday" -- relative when close, otherwise just
+// the weekday name, mirroring how someone would actually describe it to a friend.
+function relativeDayLabel(now, date) {
+  const dayMs = 24 * 60 * 60 * 1000
+  const todayKey = new Date(dayKey(now)).getTime()
+  const targetKey = new Date(dayKey(date)).getTime()
+  const diffDays = Math.round((targetKey - todayKey) / dayMs)
+  const weekday = formatWeekday(date)
+  if (diffDays === 0) return `today (${weekday})`
+  if (diffDays === 1) return `tomorrow (${weekday})`
+  return weekday
 }
 
 // One paginated pass over every auth user, reused for every league in this run -- avoids an
@@ -117,28 +173,96 @@ async function sendBrevoEmail({ toEmail, subject, html }) {
   }
 }
 
-function buildEmailHtml(entries) {
-  return entries
-    .map(({ league, period, missingGames, teamsById }) => {
-      // HashRouter (src/main.tsx) means the real client route lives after a `#` -- without it
-      // Vercel's static host has nothing to serve at this path and 404s (no server-side rewrite
-      // exists, which is the whole point of using HashRouter here instead of vercel.json).
-      const link = `${APP_BASE_URL}/#/leagues/${league.id}/weeks/${period.id}`
-      const gamesHtml = missingGames
-        .map((g) => {
-          const home = teamsById.get(g.home_team_id)?.name ?? 'Home'
-          const away = teamsById.get(g.away_team_id)?.name ?? 'Away'
-          return `<li>${away} @ ${home} — locks ${formatKickoff(g.kickoff_time)}</li>`
-        })
-        .join('')
-      return `
-        <p>You still have ${missingGames.length} pick${missingGames.length > 1 ? 's' : ''}
-        to make in <strong>${league.name}</strong> for ${periodLabel(period)} before kickoff:</p>
-        <ul>${gamesHtml}</ul>
-        <p><a href="${link}">Make your picks</a></p>
-      `
-    })
-    .join('<hr />')
+// Leagues in the same period share the same underlying games (the games table isn't
+// league-specific), so a user in several leagues for the same week would otherwise see the
+// identical game list repeated once per league. Group by period and list the games once, then
+// a short per-league line (with its own link and its own missing count, since how many of those
+// shared games a member has actually picked can differ league to league).
+function groupEntriesByPeriod(entries) {
+  const byPeriod = new Map()
+  for (const entry of entries) {
+    if (!byPeriod.has(entry.period.id)) {
+      byPeriod.set(entry.period.id, { period: entry.period, leagueEntries: [] })
+    }
+    byPeriod.get(entry.period.id).leagueEntries.push(entry)
+  }
+  return [...byPeriod.values()]
+}
+
+// Groups chronologically-sorted games by league-local calendar day, then within each day by
+// exact kickoff timestamp -- several games almost always share a slot (NFL Sunday 10am games),
+// and a count per slot is the most compact accurate way to describe the schedule.
+function groupGamesByDayAndSlot(sortedGames) {
+  const days = []
+  for (const game of sortedGames) {
+    const key = dayKey(new Date(game.kickoff_time))
+    let day = days.at(-1)
+    if (!day || day.key !== key) {
+      day = { key, date: new Date(game.kickoff_time), slots: [] }
+      days.push(day)
+    }
+    const slot = day.slots.at(-1)
+    if (slot && slot.kickoffTime === game.kickoff_time) {
+      slot.count += 1
+    } else {
+      day.slots.push({ kickoffTime: game.kickoff_time, count: 1 })
+    }
+  }
+  return days
+}
+
+function buildEmailHtml({ now, username, entries }) {
+  const greeting = `<p>Hey ${username ?? 'there'},</p>`
+
+  const sections = groupEntriesByPeriod(entries).map(({ period, leagueEntries }) => {
+    const gameIds = new Map()
+    for (const { missingGames } of leagueEntries) {
+      for (const g of missingGames) gameIds.set(g.id, g)
+    }
+    const sortedGames = [...gameIds.values()].sort(
+      (a, b) => new Date(a.kickoff_time) - new Date(b.kickoff_time),
+    )
+
+    const firstGame = sortedGames[0]
+    const intro = `<p>You still have ${sortedGames.length} pick${sortedGames.length > 1 ? 's' : ''} to make for ${periodLabel(period)}, and the first game locks ${relativeDayLabel(now, new Date(firstGame.kickoff_time))} at ${formatTimeWithZone(new Date(firstGame.kickoff_time))}.</p>`
+
+    const daysHtml = groupGamesByDayAndSlot(sortedGames)
+      .map((day) => {
+        const itemsHtml = day.slots
+          .map(
+            (slot) =>
+              `<li>${formatTimeOfDay(new Date(slot.kickoffTime))} - ${slot.count} game${slot.count > 1 ? 's' : ''}</li>`,
+          )
+          .join('')
+        return `<p><strong>${formatDayHeader(day.date)}:</strong></p><ul>${itemsHtml}</ul>`
+      })
+      .join('')
+
+    const ctaHtml =
+      leagueEntries.length === 1
+        ? `<p><a href="${APP_BASE_URL}/#/leagues/${leagueEntries[0].league.id}/weeks/${period.id}">Make your picks →</a></p>`
+        : `<p>Make your picks:</p><ul>${leagueEntries
+            .map(({ league, missingGames }) => {
+              // HashRouter (src/main.tsx) means the real client route lives after a `#` --
+              // without it Vercel's static host has nothing to serve at this path and 404s (no
+              // server-side rewrite exists, the whole point of HashRouter over vercel.json).
+              const link = `${APP_BASE_URL}/#/leagues/${league.id}/weeks/${period.id}`
+              const count = missingGames.length
+              return `<li><a href="${link}">${league.name}</a> — ${count} pick${count > 1 ? 's' : ''} missing</li>`
+            })
+            .join('')}</ul>`
+
+    return `${intro}${daysHtml}<p>Once a game locks, that pick's gone — don't leave points on the table.</p>${ctaHtml}`
+  })
+
+  return `${greeting}${sections.join('<hr />')}<p>Good luck this week,</p>`
+}
+
+function countDistinctMissingGames(entries) {
+  return groupEntriesByPeriod(entries).reduce((total, { leagueEntries }) => {
+    const gameIds = new Set(leagueEntries.flatMap((e) => e.missingGames.map((g) => g.id)))
+    return total + gameIds.size
+  }, 0)
 }
 
 async function main() {
@@ -163,7 +287,7 @@ async function main() {
 
   const { data: allGames, error: gamesError } = await supabase
     .from('games')
-    .select('id, period_id, home_team_id, away_team_id, kickoff_time, status')
+    .select('id, period_id, kickoff_time, status')
     .in(
       'period_id',
       periods.map((p) => p.id),
@@ -207,32 +331,17 @@ async function main() {
 
   const relevantPeriodIds = [...remindableGamesByPeriod.keys()]
 
-  const [
-    { data: members, error: membersError },
-    { data: existingPicks, error: picksError },
-    { data: teamRows, error: teamsError },
-  ] = await Promise.all([
-    supabase.from('league_members').select('league_id, user_id, joined_at'),
-    supabase
-      .from('picks')
-      .select('user_id, league_id, period_id, game_id')
-      .in('period_id', relevantPeriodIds),
-    supabase
-      .from('teams')
-      .select('id, name, abbreviation')
-      .in('id', [
-        ...new Set(
-          [...remindableGamesByPeriod.values()]
-            .flat()
-            .flatMap((g) => [g.home_team_id, g.away_team_id]),
-        ),
-      ]),
-  ])
-  for (const e of [membersError, picksError, teamsError]) {
+  const [{ data: members, error: membersError }, { data: existingPicks, error: picksError }] =
+    await Promise.all([
+      supabase.from('league_members').select('league_id, user_id, joined_at'),
+      supabase
+        .from('picks')
+        .select('user_id, league_id, period_id, game_id')
+        .in('period_id', relevantPeriodIds),
+    ])
+  for (const e of [membersError, picksError]) {
     if (e) throw e
   }
-
-  const teamsById = new Map(teamRows.map((t) => [t.id, t]))
 
   const membersByLeague = new Map()
   for (const m of members) {
@@ -270,11 +379,17 @@ async function main() {
       if (!missingGames.length) continue
 
       if (!entriesByUser.has(member.user_id)) entriesByUser.set(member.user_id, [])
-      entriesByUser
-        .get(member.user_id)
-        .push({ league, period: currentPeriod, missingGames, teamsById })
+      entriesByUser.get(member.user_id).push({ league, period: currentPeriod, missingGames })
     }
   }
+
+  const userIds = [...entriesByUser.keys()]
+  const { data: profileRows, error: profilesError } = await supabase
+    .from('profiles')
+    .select('id, username')
+    .in('id', userIds.length ? userIds : [null])
+  if (profilesError) throw profilesError
+  const usernameById = new Map(profileRows.map((p) => [p.id, p.username]))
 
   let usersSent = 0
   let skippedNoEmail = 0
@@ -289,10 +404,10 @@ async function main() {
     }
 
     const toEmail = TEST_RECIPIENT || realEmail
-    const totalMissing = entries.reduce((n, e) => n + e.missingGames.length, 0)
-    const subjectBase = `Pick reminder: ${totalMissing} pick${totalMissing > 1 ? 's' : ''} due this week`
+    const distinctMissing = countDistinctMissingGames(entries)
+    const subjectBase = `Pick reminder: ${distinctMissing} game${distinctMissing > 1 ? 's' : ''} to pick this week`
     const subject = TEST_RECIPIENT ? `[TEST] ${subjectBase} (for ${realEmail})` : subjectBase
-    const html = buildEmailHtml(entries)
+    const html = buildEmailHtml({ now, username: usernameById.get(userId), entries })
 
     if (DRY_RUN) {
       const summary = entries
