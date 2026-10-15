@@ -83,8 +83,8 @@ function formatTimeWithZone(date) {
   }).format(date)
 }
 
-// Used in the per-day listing, where the zone is already established -- terser, e.g. "10AM" or
-// "5:25PM" (no ":00" for on-the-hour slots, no space before AM/PM).
+// Used in the per-day listing, where the zone is already established -- terser than
+// formatTimeWithZone, e.g. "10:00AM" or "5:25PM" (no space before AM/PM, always hour:minute).
 function formatTimeOfDay(date) {
   const parts = new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
@@ -95,7 +95,7 @@ function formatTimeOfDay(date) {
   const hour = parts.find((p) => p.type === 'hour').value
   const minute = parts.find((p) => p.type === 'minute').value
   const dayPeriod = parts.find((p) => p.type === 'dayPeriod').value.toUpperCase()
-  return minute === '00' ? `${hour}${dayPeriod}` : `${hour}:${minute}${dayPeriod}`
+  return `${hour}:${minute}${dayPeriod}`
 }
 
 function formatWeekday(date) {
@@ -224,7 +224,7 @@ function buildEmailHtml({ now, username, entries }) {
     )
 
     const firstGame = sortedGames[0]
-    const intro = `<p>You still have ${sortedGames.length} pick${sortedGames.length > 1 ? 's' : ''} to make for ${periodLabel(period)}, and the first game locks ${relativeDayLabel(now, new Date(firstGame.kickoff_time))} at ${formatTimeWithZone(new Date(firstGame.kickoff_time))}.</p>`
+    const intro = `<p>You still have picks to make this week, and the first game locks ${relativeDayLabel(now, new Date(firstGame.kickoff_time))} at ${formatTimeWithZone(new Date(firstGame.kickoff_time))}.</p>`
 
     const daysHtml = groupGamesByDayAndSlot(sortedGames)
       .map((day) => {
@@ -238,24 +238,23 @@ function buildEmailHtml({ now, username, entries }) {
       })
       .join('')
 
-    const ctaHtml =
-      leagueEntries.length === 1
-        ? `<p><a href="${APP_BASE_URL}/#/leagues/${leagueEntries[0].league.id}/weeks/${period.id}">Make your picks →</a></p>`
-        : `<p>Make your picks:</p><ul>${leagueEntries
-            .map(({ league, missingGames }) => {
-              // HashRouter (src/main.tsx) means the real client route lives after a `#` --
-              // without it Vercel's static host has nothing to serve at this path and 404s (no
-              // server-side rewrite exists, the whole point of HashRouter over vercel.json).
-              const link = `${APP_BASE_URL}/#/leagues/${league.id}/weeks/${period.id}`
-              const count = missingGames.length
-              return `<li><a href="${link}">${league.name}</a> — ${count} pick${count > 1 ? 's' : ''} missing</li>`
-            })
-            .join('')}</ul>`
+    // Always list each league as its own entry point, even when there's only one -- a flat
+    // "Make your picks →" link would hide which league it's for once someone's in more than one.
+    const ctaHtml = `<p>Make your picks:</p><ul>${leagueEntries
+      .map(({ league, missingGames }) => {
+        // HashRouter (src/main.tsx) means the real client route lives after a `#` -- without it
+        // Vercel's static host has nothing to serve at this path and 404s (no server-side
+        // rewrite exists, the whole point of HashRouter over vercel.json).
+        const link = `${APP_BASE_URL}/#/leagues/${league.id}/weeks/${period.id}`
+        const count = missingGames.length
+        return `<li><a href="${link}">${league.name}</a> — ${count} pick${count > 1 ? 's' : ''} missing</li>`
+      })
+      .join('')}</ul>`
 
-    return `${intro}${daysHtml}<p>Once a game locks, that pick's gone — don't leave points on the table.</p>${ctaHtml}`
+    return `${intro}${daysHtml}<p>Once a game locks that pick is gone, so don't leave points on the table.</p>${ctaHtml}`
   })
 
-  return `${greeting}${sections.join('<hr />')}<p>Good luck this week,</p>`
+  return `${greeting}${sections.join('<hr />')}<p>Good luck this week!</p>`
 }
 
 function countDistinctMissingGames(entries) {
