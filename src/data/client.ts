@@ -24,6 +24,14 @@ export interface DataClient {
 
   /** The requesting user's own picks for a period, regardless of lock state. */
   getMyPicksForPeriod(input: { leagueId: string; periodId: string; userId: string }): Promise<Pick[]>
+  /** The signed-in user's own picks across a set of periods (typically "every period in a
+   * season"), optionally scoped to one league. Batched the same way getCurrentPeriod already
+   * batches game lookups via .in('period_id', ...) -- avoids one request per week. */
+  getPicksForPeriods(input: { userId: string; leagueId?: string; periodIds: string[] }): Promise<Pick[]>
+  /** Distinct season years the user has any pick in, optionally scoped to one league -- cheap
+   * and narrow, for populating a season filter without fetching full pick history just to
+   * derive which seasons it spans. */
+  getPickedSeasons(input: { userId: string; leagueId?: string }): Promise<number[]>
   /** All league members' picks for a period, with unlocked-game picks omitted server-side. */
   getLeaguePicksForPeriod(input: { leagueId: string; periodId: string }): Promise<Pick[]>
   submitPick(input: {

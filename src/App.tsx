@@ -8,6 +8,7 @@ import { LeagueListPage } from './routes/LeagueListPage'
 import { LeaguePicksComparisonPage } from './routes/LeaguePicksComparisonPage'
 import { LoginPage } from './routes/LoginPage'
 import { OnboardingPage } from './routes/OnboardingPage'
+import { ReportsPage } from './routes/ReportsPage'
 import { SettingsPage } from './routes/SettingsPage'
 import { StandingsPage } from './routes/StandingsPage'
 import { WeekPicksPage } from './routes/WeekPicksPage'
@@ -49,6 +50,7 @@ function App() {
               element={<LeaguePicksComparisonPage />}
             />
             <Route path="/leagues/:leagueId/standings" element={<StandingsPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Route>

@@ -64,6 +64,8 @@ export interface Game {
   awayScore: number | null
 }
 
+export type PickOutcome = 'correct' | 'incorrect' | 'pending'
+
 export interface Pick {
   id: string
   userId: string
@@ -74,6 +76,7 @@ export interface Pick {
   confidenceValue: number
   isAutoAssigned: boolean
   pointsEarned: number | null
+  outcome: PickOutcome
 }
 
 /** username is resolved separately via a profiles lookup, not stored here. */

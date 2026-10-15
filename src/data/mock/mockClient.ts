@@ -1,5 +1,5 @@
 import type { DataClient } from '../client'
-import type { Game, League, Period, Pick, Standing, Team } from '../../types/domain'
+import type { Game, League, Period, Pick, PickOutcome, Standing, Team } from '../../types/domain'
 import { generateInviteCode } from '../../lib/inviteCode'
 import { pickCurrentPeriod } from '../../lib/periods'
 import gamesFixture from './fixtures/games.json'
@@ -104,6 +104,7 @@ function seedTestMembers(state: PersistedState, leagueId: string) {
         confidenceValue: ((gameIndex + memberIndex * 5) % periodGames.length) + 1,
         isAutoAssigned: false,
         pointsEarned: null,
+        outcome: 'pending',
       })
     })
   })
@@ -126,6 +127,14 @@ function pointsForPick(pick: Pick, game: Game): number | null {
   return pick.pickedTeamId === winner ? pick.confidenceValue : 0
 }
 
+/** Mirrors the `pick_outcome` generated column on the real schema: null=pending, 0=incorrect
+ * (wrong or tied), >0=correct. The only place this convention is written in JS — the real
+ * client never needs it since Postgres computes the column itself. */
+function outcomeForPoints(pointsEarned: number | null): PickOutcome {
+  if (pointsEarned === null) return 'pending'
+  return pointsEarned > 0 ? 'correct' : 'incorrect'
+}
+
 /**
  * The real backend scores a pick via a DB trigger the moment its game goes final, so
  * `pointsEarned` is always up to date by the time a client reads it. The mock only ever writes
@@ -135,7 +144,8 @@ function pointsForPick(pick: Pick, game: Game): number | null {
 function withComputedPoints(pick: Pick): Pick {
   const game = games.find((g) => g.id === pick.gameId)
   if (!game) return pick
-  return { ...pick, pointsEarned: pointsForPick(pick, game) }
+  const pointsEarned = pointsForPick(pick, game)
+  return { ...pick, pointsEarned, outcome: outcomeForPoints(pointsEarned) }
 }
 
 export const mockClient: DataClient = {
@@ -228,6 +238,27 @@ export const mockClient: DataClient = {
     )
   },
 
+  async getPicksForPeriods({ userId, leagueId, periodIds }) {
+    const state = loadState()
+    const periodIdSet = new Set(periodIds)
+    return delay(
+      state.picks
+        .filter((p) => p.userId === userId && (!leagueId || p.leagueId === leagueId) && periodIdSet.has(p.periodId))
+        .map(withComputedPoints),
+    )
+  },
+
+  async getPickedSeasons({ userId, leagueId }) {
+    const state = loadState()
+    const seasonYears = new Set<number>()
+    for (const pick of state.picks) {
+      if (pick.userId !== userId || (leagueId && pick.leagueId !== leagueId)) continue
+      const seasonYear = periodsById.get(pick.periodId)?.seasonYear
+      if (seasonYear !== undefined) seasonYears.add(seasonYear)
+    }
+    return delay([...seasonYears])
+  },
+
   async submitPick({ userId, leagueId, periodId, gameId, pickedTeamId, confidenceValue }) {
     const state = loadState()
     const game = games.find((g) => g.id === gameId)
@@ -258,6 +289,7 @@ export const mockClient: DataClient = {
       confidenceValue,
       isAutoAssigned: false,
       pointsEarned: null,
+      outcome: 'pending',
     }
     if (existingIndex >= 0) {
       state.picks[existingIndex] = pick
