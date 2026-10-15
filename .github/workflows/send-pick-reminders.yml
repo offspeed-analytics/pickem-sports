@@ -6,6 +6,11 @@ on:
     # Pacific during the early-season daylight-time weeks, since GitHub Actions cron is UTC-only.
     - cron: '0 16 * * 4'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (log what would be sent, without emailing anyone)'
+        type: boolean
+        default: true
 
 jobs:
   send-reminders:
@@ -16,7 +21,9 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: node scripts/send-pick-reminders.mjs
+      # The schedule trigger has no `inputs`, so this is false (a real send) for the weekly cron
+      # and whatever the dry_run checkbox says for a manual run.
+      - run: node scripts/send-pick-reminders.mjs ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
