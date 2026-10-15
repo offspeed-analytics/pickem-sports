@@ -99,7 +99,10 @@ async function sendBrevoEmail({ toEmail, subject, html }) {
 function buildEmailHtml(entries) {
   const sections = entries
     .map(({ league, period, missingGames, teamsById }) => {
-      const link = `${APP_BASE_URL}/leagues/${league.id}/weeks/${period.id}`
+      // HashRouter (src/main.tsx) means the real client route lives after a `#` -- without it
+      // Vercel's static host has nothing to serve at this path and 404s (no server-side rewrite
+      // exists, which is the whole point of using HashRouter here instead of vercel.json).
+      const link = `${APP_BASE_URL}/#/leagues/${league.id}/weeks/${period.id}`
       const gamesHtml = missingGames
         .map((g) => {
           const home = teamsById.get(g.home_team_id)?.name ?? 'Home'
