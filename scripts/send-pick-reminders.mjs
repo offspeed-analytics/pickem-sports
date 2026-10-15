@@ -1,10 +1,15 @@
-// Reminds league members about missing picks on games that lock within REMINDER_WINDOW_HOURS.
-// Mirrors scripts/auto-assign-picks.mjs's query shape (leagues -> members -> picks), inverted:
-// upcoming scheduled games instead of just-locked ones, ending in "send an email" instead of
-// "insert an auto-pick". Idempotency is enforced by pick_reminder_log's unique constraint
-// (migration 0011) -- safe to run hourly. A member can belong to several leagues, so reminders
-// are batched into one email per user per run (one pick_reminder_log row per league/period
-// covered, but a single send) rather than one email per league.
+// Reminds league members, once a week, about picks they still haven't made for the current
+// week's remaining (not-yet-locked) games. Mirrors scripts/auto-assign-picks.mjs's query shape
+// (leagues -> members -> picks), but looking forward instead of back, and emailing instead of
+// auto-assigning. Meant to run once per week (see .github/workflows/send-pick-reminders.yml) --
+// deliberately no idempotency table: a single weekly send doesn't need one, at the cost that a
+// manual re-run mid-week would re-email anyone still missing a pick. A member can belong to
+// several leagues, so reminders are batched into one email per user per run rather than one
+// email per league.
+//
+// "Current week" mirrors src/lib/periods.ts's pickCurrentPeriod: the earliest period (per sport)
+// whose last game hasn't finished yet (plus a 24h grace window after it) -- not just "every
+// upcoming game in the DB," since a season's schedule can be synced far in advance.
 //
 // No physical mailing address in the email body on purpose: this is a transactional reminder to
 // an existing league member, not commercial bulk mail, so the CAN-SPAM postal-address mandate
@@ -21,7 +26,6 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const BREVO_API_KEY = process.env.BREVO_API_KEY
 const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL
 const APP_BASE_URL = process.env.APP_BASE_URL
-const REMINDER_WINDOW_HOURS = Number(process.env.REMINDER_WINDOW_HOURS ?? 24)
 
 const DRY_RUN = process.argv.includes('--dry-run')
 const testRecipientArg = process.argv.find((a) => a.startsWith('--test-recipient='))
@@ -41,6 +45,23 @@ if (!APP_BASE_URL) {
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
+const GRACE_PERIOD_MS = 24 * 60 * 60 * 1000
+
+// Mirrors src/lib/periods.ts's pickCurrentPeriod (duplicated rather than imported: that file is
+// TypeScript, and this script is plain Node ESM with no build step).
+function pickCurrentPeriod(periods, lastKickoffByPeriodId, now) {
+  const ascending = [...periods].sort(
+    (a, b) => a.season_year - b.season_year || a.period_number - b.period_number,
+  )
+  for (const period of ascending) {
+    const lastKickoff = lastKickoffByPeriodId.get(period.id)
+    if (!lastKickoff) continue // no games synced for this period yet
+    const cutoff = new Date(lastKickoff).getTime() + GRACE_PERIOD_MS
+    if (now.getTime() < cutoff) return period
+  }
+  return ascending.at(-1) // season's fully over; nothing current to remind about
+}
+
 function periodLabel(period) {
   const kind = period.season_type === 'postseason' ? 'Postseason Round' : 'Week'
   return `${period.season_year} ${kind} ${period.period_number}`
@@ -57,8 +78,8 @@ function formatKickoff(kickoffTime) {
   }).format(new Date(kickoffTime))
 }
 
-// One paginated pass over every auth user, reused for every league/period in this run --
-// avoids an admin API call per member. Emails live only in auth.users, never in `profiles`.
+// One paginated pass over every auth user, reused for every league in this run -- avoids an
+// admin API call per member. Emails live only in auth.users, never in `profiles`.
 async function buildEmailMap() {
   const emailById = new Map()
   let page = 1
@@ -97,7 +118,7 @@ async function sendBrevoEmail({ toEmail, subject, html }) {
 }
 
 function buildEmailHtml(entries) {
-  const sections = entries
+  return entries
     .map(({ league, period, missingGames, teamsById }) => {
       // HashRouter (src/main.tsx) means the real client route lives after a `#` -- without it
       // Vercel's static host has nothing to serve at this path and 404s (no server-side rewrite
@@ -118,64 +139,99 @@ function buildEmailHtml(entries) {
       `
     })
     .join('<hr />')
-  return sections
 }
 
 async function main() {
   const now = new Date()
-  const windowEnd = new Date(now.getTime() + REMINDER_WINDOW_HOURS * 3600 * 1000)
 
-  const { data: upcomingGames, error: gamesError } = await supabase
-    .from('games')
-    .select('id, period_id, home_team_id, away_team_id, kickoff_time')
-    .eq('status', 'scheduled')
-    .gt('kickoff_time', now.toISOString())
-    .lte('kickoff_time', windowEnd.toISOString())
-  if (gamesError) throw gamesError
-  if (!upcomingGames.length) {
-    console.log('No games entering the reminder window.')
+  const { data: leagues, error: leaguesError } = await supabase
+    .from('leagues')
+    .select('id, name, sport')
+  if (leaguesError) throw leaguesError
+  if (!leagues.length) {
+    console.log('No leagues exist.')
     return
   }
 
-  const periodIds = [...new Set(upcomingGames.map((g) => g.period_id))]
+  const sports = [...new Set(leagues.map((l) => l.sport))]
+
+  const { data: periods, error: periodsError } = await supabase
+    .from('periods')
+    .select('id, sport, season_year, season_type, period_number')
+    .in('sport', sports)
+  if (periodsError) throw periodsError
+
+  const { data: allGames, error: gamesError } = await supabase
+    .from('games')
+    .select('id, period_id, home_team_id, away_team_id, kickoff_time, status')
+    .in(
+      'period_id',
+      periods.map((p) => p.id),
+    )
+  if (gamesError) throw gamesError
+
   const gamesByPeriod = new Map()
-  for (const g of upcomingGames) {
+  for (const g of allGames) {
     if (!gamesByPeriod.has(g.period_id)) gamesByPeriod.set(g.period_id, [])
     gamesByPeriod.get(g.period_id).push(g)
   }
 
+  // Current period per sport, the same concept the app itself uses to decide what week a user
+  // should be picking.
+  const currentPeriodBySport = new Map()
+  for (const sport of sports) {
+    const sportPeriods = periods.filter((p) => p.sport === sport)
+    const lastKickoffByPeriodId = new Map()
+    for (const period of sportPeriods) {
+      const kickoffs = (gamesByPeriod.get(period.id) ?? []).map((g) => g.kickoff_time)
+      if (kickoffs.length) {
+        lastKickoffByPeriodId.set(period.id, kickoffs.sort().at(-1))
+      }
+    }
+    const current = pickCurrentPeriod(sportPeriods, lastKickoffByPeriodId, now)
+    if (current) currentPeriodBySport.set(sport, current)
+  }
+
+  // Only the current period's games that haven't locked yet are worth reminding about.
+  const remindableGamesByPeriod = new Map()
+  for (const period of currentPeriodBySport.values()) {
+    const remaining = (gamesByPeriod.get(period.id) ?? []).filter(
+      (g) => g.status === 'scheduled' && new Date(g.kickoff_time) > now,
+    )
+    if (remaining.length) remindableGamesByPeriod.set(period.id, remaining)
+  }
+  if (!remindableGamesByPeriod.size) {
+    console.log('No current-week games left to pick.')
+    return
+  }
+
+  const relevantPeriodIds = [...remindableGamesByPeriod.keys()]
+
   const [
-    { data: periods, error: periodsError },
-    { data: leagues, error: leaguesError },
     { data: members, error: membersError },
     { data: existingPicks, error: picksError },
-    { data: reminderLog, error: logError },
     { data: teamRows, error: teamsError },
   ] = await Promise.all([
-    supabase
-      .from('periods')
-      .select('id, sport, season_year, season_type, period_number')
-      .in('id', periodIds),
-    supabase.from('leagues').select('id, name, sport'),
     supabase.from('league_members').select('league_id, user_id, joined_at'),
     supabase
       .from('picks')
       .select('user_id, league_id, period_id, game_id')
-      .in('period_id', periodIds),
-    supabase
-      .from('pick_reminder_log')
-      .select('user_id, league_id, period_id')
-      .in('period_id', periodIds),
+      .in('period_id', relevantPeriodIds),
     supabase
       .from('teams')
       .select('id, name, abbreviation')
-      .in('id', [...new Set(upcomingGames.flatMap((g) => [g.home_team_id, g.away_team_id]))]),
+      .in('id', [
+        ...new Set(
+          [...remindableGamesByPeriod.values()]
+            .flat()
+            .flatMap((g) => [g.home_team_id, g.away_team_id]),
+        ),
+      ]),
   ])
-  for (const e of [periodsError, leaguesError, membersError, picksError, logError, teamsError]) {
+  for (const e of [membersError, picksError, teamsError]) {
     if (e) throw e
   }
 
-  const periodsById = new Map(periods.map((p) => [p.id, p]))
   const teamsById = new Map(teamRows.map((t) => [t.id, t]))
 
   const membersByLeague = new Map()
@@ -191,10 +247,6 @@ async function main() {
     pickedGameIds.get(key).add(p.game_id)
   }
 
-  const alreadyReminded = new Set(
-    reminderLog.map((r) => `${r.user_id}|${r.league_id}|${r.period_id}`),
-  )
-
   const emailById = await buildEmailMap()
 
   // One user can be in several leagues, so collect every pending (league, period) entry per
@@ -202,29 +254,25 @@ async function main() {
   const entriesByUser = new Map()
 
   for (const league of leagues) {
+    const currentPeriod = currentPeriodBySport.get(league.sport)
+    if (!currentPeriod) continue
+    const gamesInPeriod = remindableGamesByPeriod.get(currentPeriod.id)
+    if (!gamesInPeriod) continue
+
     const leagueMembers = membersByLeague.get(league.id) ?? []
-    if (!leagueMembers.length) continue
+    for (const member of leagueMembers) {
+      const picked =
+        pickedGameIds.get(`${league.id}|${currentPeriod.id}|${member.user_id}`) ?? new Set()
+      const joinedAt = new Date(member.joined_at)
+      const missingGames = gamesInPeriod.filter(
+        (g) => !picked.has(g.id) && new Date(g.kickoff_time) >= joinedAt,
+      )
+      if (!missingGames.length) continue
 
-    for (const periodId of periodIds) {
-      const period = periodsById.get(periodId)
-      if (!period || period.sport !== league.sport) continue
-      const gamesInPeriod = gamesByPeriod.get(periodId) ?? []
-      if (!gamesInPeriod.length) continue
-
-      for (const member of leagueMembers) {
-        const reminderKey = `${member.user_id}|${league.id}|${periodId}`
-        if (alreadyReminded.has(reminderKey)) continue
-
-        const picked = pickedGameIds.get(`${league.id}|${periodId}|${member.user_id}`) ?? new Set()
-        const joinedAt = new Date(member.joined_at)
-        const missingGames = gamesInPeriod.filter(
-          (g) => !picked.has(g.id) && new Date(g.kickoff_time) >= joinedAt,
-        )
-        if (!missingGames.length) continue
-
-        if (!entriesByUser.has(member.user_id)) entriesByUser.set(member.user_id, [])
-        entriesByUser.get(member.user_id).push({ league, period, missingGames, teamsById })
-      }
+      if (!entriesByUser.has(member.user_id)) entriesByUser.set(member.user_id, [])
+      entriesByUser
+        .get(member.user_id)
+        .push({ league, period: currentPeriod, missingGames, teamsById })
     }
   }
 
@@ -242,7 +290,7 @@ async function main() {
 
     const toEmail = TEST_RECIPIENT || realEmail
     const totalMissing = entries.reduce((n, e) => n + e.missingGames.length, 0)
-    const subjectBase = `Pick reminder: ${totalMissing} pick${totalMissing > 1 ? 's' : ''} due soon`
+    const subjectBase = `Pick reminder: ${totalMissing} pick${totalMissing > 1 ? 's' : ''} due this week`
     const subject = TEST_RECIPIENT ? `[TEST] ${subjectBase} (for ${realEmail})` : subjectBase
     const html = buildEmailHtml(entries)
 
@@ -258,21 +306,8 @@ async function main() {
     try {
       await sendBrevoEmail({ toEmail, subject, html })
       usersSent += 1
-
-      // Redirected test sends don't count as having actually reminded the real user --
-      // skip the log write so the real reminder still goes out on a later run.
-      if (!TEST_RECIPIENT) {
-        const rows = entries.map((e) => ({
-          user_id: userId,
-          league_id: e.league.id,
-          period_id: e.period.id,
-        }))
-        const { error: insertError } = await supabase.from('pick_reminder_log').insert(rows)
-        if (insertError) throw insertError
-      }
     } catch (err) {
-      // Log and move on -- one bad email (bounce, Brevo hiccup) shouldn't abort the run, and not
-      // writing the log rows means this user's reminders are retried on the next hourly run.
+      // Log and move on -- one bad email (bounce, Brevo hiccup) shouldn't abort the run.
       failedUsers += 1
       console.error(`Failed to remind user ${userId}:`, err)
     }
