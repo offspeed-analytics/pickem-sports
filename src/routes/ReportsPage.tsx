@@ -83,11 +83,14 @@ export function ReportsPage() {
   })
   const picks = picksQuery.data ?? EMPTY
 
-  // None of these four depend on `mode` -- the Weighted/Raw toggle only changes which
-  // already-computed field gets displayed, so it must never trigger this recompute.
+  // None of these depend on `mode` -- the Weighted/Raw toggle only changes which
+  // already-computed result gets displayed, so it must never trigger this recompute.
   const summary = useMemo(() => summarizeAccuracy(picks), [picks])
   const confidenceRows = useMemo(() => breakdownByConfidence(picks), [picks])
-  const leaderboards = useMemo(() => buildTeamLeaderboards(picks), [picks])
+  const leaderboardsByMode = useMemo(
+    () => ({ weighted: buildTeamLeaderboards(picks, 'weighted'), raw: buildTeamLeaderboards(picks, 'raw') }),
+    [picks],
+  )
   const trend = useMemo(() => buildWeeklyTrend(picks, periodsInSeason), [picks, periodsInSeason])
 
   if (
@@ -102,6 +105,7 @@ export function ReportsPage() {
 
   const decidedPicks = summary.correctPicks + summary.incorrectPicks
   const displayPct = mode === 'weighted' ? summary.weightedAccuracyPct : summary.accuracyPct
+  const leaderboards = leaderboardsByMode[mode]
 
   return (
     <div className="space-y-4">
@@ -164,8 +168,8 @@ export function ReportsPage() {
           <ConfidenceBreakdownChart rows={confidenceRows} />
 
           <div className="grid gap-4 md:grid-cols-2">
-            <TeamLeaderboardPanel title="Your Biggest Winners" rows={leaderboards.right} teamsById={teamsById} tone="good" />
-            <TeamLeaderboardPanel title="Your Biggest Losers" rows={leaderboards.wrong} teamsById={teamsById} tone="critical" />
+            <TeamLeaderboardPanel title="Your Biggest Winners" rows={leaderboards.right} teamsById={teamsById} tone="good" mode={mode} />
+            <TeamLeaderboardPanel title="Your Biggest Losers" rows={leaderboards.wrong} teamsById={teamsById} tone="critical" mode={mode} />
           </div>
         </>
       )}

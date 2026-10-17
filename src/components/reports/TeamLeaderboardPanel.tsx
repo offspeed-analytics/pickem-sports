@@ -1,5 +1,5 @@
 import type { Team } from '../../types/domain'
-import type { TeamLeaderboardRow } from '../../lib/reports'
+import type { LeaderboardMode, TeamLeaderboardRow } from '../../lib/reports'
 import { HorizontalBarChart, type HorizontalBarChartRow } from '../charts/HorizontalBarChart'
 
 interface TeamLeaderboardPanelProps {
@@ -7,18 +7,25 @@ interface TeamLeaderboardPanelProps {
   rows: TeamLeaderboardRow[]
   teamsById: Map<string, Team>
   tone: 'good' | 'critical'
+  mode: LeaderboardMode
 }
 
-export function TeamLeaderboardPanel({ title, rows, teamsById, tone }: TeamLeaderboardPanelProps) {
+export function TeamLeaderboardPanel({ title, rows, teamsById, tone, mode }: TeamLeaderboardPanelProps) {
   const chartRows: HorizontalBarChartRow[] = rows.map((row) => {
     const team = teamsById.get(row.teamId)
-    const valueLabel = `${row.score} pts ${tone === 'good' ? 'earned' : 'lost'}`
+    // row.score is points in weighted mode, a pick count in raw mode (see buildTeamLeaderboards).
+    const valueLabel =
+      mode === 'weighted'
+        ? `${row.score} pts ${tone === 'good' ? 'earned' : 'lost'}`
+        : `${row.score} ${tone === 'good' ? 'correct' : 'wrong'}`
     // row.avgConfidenceForScore is already scoped to exactly the outcome this panel is about
     // (buildTeamLeaderboards computed it that way); row.avgConfidence is the broader figure --
     // average confidence across every decided pick of this team, win or lose -- a different,
-    // complementary number, not just a restatement.
+    // complementary number, not just a restatement. The first two lines give both angles --
+    // pick counts and confidence points -- whichever mode is ranking the panel.
     const detailLines = [
       `${row.correctPicks}/${row.decidedPicks} correct${row.accuracyPct !== null ? ` (${row.accuracyPct.toFixed(0)}%)` : ''}`,
+      tone === 'good' ? `${row.points} pts earned` : `${row.incorrectPicks} wrong · ${row.points} pts lost`,
       `Avg confidence when ${tone === 'good' ? 'right' : 'wrong'}: ${row.avgConfidenceForScore.toFixed(1)}`,
       `Overall avg confidence: ${row.avgConfidence.toFixed(1)}`,
     ]
