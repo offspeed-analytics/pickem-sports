@@ -15,11 +15,12 @@ export function WeeklyTrendChart({ points, mode }: WeeklyTrendChartProps) {
       const pct = mode === 'weighted' ? p.weightedAccuracyPct : p.accuracyPct
       if (pct === null) return [] // decidedPicks > 0 always implies a non-null pct; defensive only
       const x = p.seasonType === 'postseason' ? `Playoffs Wk ${p.periodNumber}` : `Wk ${p.periodNumber}`
+      const shortX = p.seasonType === 'postseason' ? `P${p.periodNumber}` : String(p.periodNumber)
       const tooltip =
         mode === 'weighted'
           ? [`${pct.toFixed(0)}% weighted accuracy`, `${p.totalPoints}/${p.confidenceAtStake} confidence points earned`]
           : [`${pct.toFixed(0)}% accuracy`, `${p.correctPicks}/${p.decidedPicks} correct`]
-      return [{ x, y: pct, valueLabel: `${pct.toFixed(0)}%`, tooltip }]
+      return [{ x, shortX, y: pct, valueLabel: `${pct.toFixed(0)}%`, tooltip }]
     })
 
   return (
@@ -30,7 +31,12 @@ export function WeeklyTrendChart({ points, mode }: WeeklyTrendChartProps) {
       {chartPoints.length === 0 ? (
         <p className="text-sm text-slate-500">No graded picks yet.</p>
       ) : (
-        <LineChart points={chartPoints} />
+        <LineChart
+          points={chartPoints}
+          compactXAxisTitle="Week"
+          compactYMax={100}
+          formatYAxis={(v) => `${v.toFixed(0)}%`}
+        />
       )}
     </div>
   )
