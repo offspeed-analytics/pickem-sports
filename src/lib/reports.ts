@@ -86,8 +86,12 @@ export interface TeamLeaderboardRow {
   correctPicks: number
   incorrectPicks: number
   accuracyPct: number | null
+  /** What the row is ranked by: `points` in weighted mode, the pick count (correctPicks for the
+   * "right" list, incorrectPicks for the "wrong" list) in raw mode. */
   score: number
-  /** Average confidenceValue across exactly the picks `score` was summed from (correct picks
+  /** Confidence points earned (right list) or lost (wrong list) on this team, in either mode. */
+  points: number
+  /** Average confidenceValue across exactly the picks `points` was summed from (correct picks
    * for the "right" list, incorrect for the "wrong" list) -- precomputed here so callers never
    * have to re-derive it from `score` and guess which pick count to divide by. */
   avgConfidenceForScore: number
@@ -130,7 +134,7 @@ function tallyByTeam(picks: Pick[]): Map<string, TeamTally> {
   return byTeam
 }
 
-function toRow(tally: TeamTally, score: number, scopedPicks: number): TeamLeaderboardRow {
+function toRow(tally: TeamTally, score: number, scopedPicks: number, scopedConfidenceSum: number): TeamLeaderboardRow {
   const decidedPicks = tally.correctPicks + tally.incorrectPicks
   const totalConfidence = tally.correctConfidenceSum + tally.incorrectConfidenceSum
   return {
@@ -140,35 +144,41 @@ function toRow(tally: TeamTally, score: number, scopedPicks: number): TeamLeader
     incorrectPicks: tally.incorrectPicks,
     accuracyPct: accuracyPct(tally.correctPicks, tally.incorrectPicks),
     score,
-    avgConfidenceForScore: scopedPicks > 0 ? score / scopedPicks : 0,
+    points: scopedConfidenceSum,
+    avgConfidenceForScore: scopedPicks > 0 ? scopedConfidenceSum / scopedPicks : 0,
     avgConfidence: decidedPicks > 0 ? totalConfidence / decidedPicks : 0,
   }
 }
 
 /**
- * Always points-based, regardless of the page's weighted/raw accuracy toggle -- these panels
- * show "X pts earned/lost" and a bar length must represent the same number it's labeled with, so
- * they can't switch to ranking by a percentage the bar wouldn't visually match.
- * right.score = confidence spent on correct picks of that team (= points earned, since a correct
- * pick's pointsEarned IS its confidenceValue); wrong.score = confidence spent and lost on
- * incorrect picks of that team. Both ranked desc (biggest first), top 5.
+ * Follows the page's weighted/raw toggle, always ranking by the same number the panel labels
+ * and sizes its bar with (so bar length matches the label):
+ * - weighted: right.score = confidence spent on correct picks of that team (= points earned,
+ *   since a correct pick's pointsEarned IS its confidenceValue); wrong.score = confidence spent
+ *   and lost on incorrect picks of that team.
+ * - raw: right.score = number of correct picks of that team; wrong.score = number of incorrect
+ *   picks -- confidence ignored, ties broken by the points figure above.
+ * Both ranked desc (biggest first), top 5.
  */
-export function buildTeamLeaderboards(picks: Pick[]): {
+export function buildTeamLeaderboards(
+  picks: Pick[],
+  mode: LeaderboardMode,
+): {
   right: TeamLeaderboardRow[]
   wrong: TeamLeaderboardRow[]
 } {
   const tallies = [...tallyByTeam(picks).values()]
-  const right = tallies
-    .map((t) => toRow(t, t.correctConfidenceSum, t.correctPicks))
-    .filter((row) => row.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5)
-  const wrong = tallies
-    .map((t) => toRow(t, t.incorrectConfidenceSum, t.incorrectPicks))
-    .filter((row) => row.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5)
-  return { right, wrong }
+  const rank = (outcome: 'correct' | 'incorrect') =>
+    tallies
+      .map((t) => {
+        const count = outcome === 'correct' ? t.correctPicks : t.incorrectPicks
+        const points = outcome === 'correct' ? t.correctConfidenceSum : t.incorrectConfidenceSum
+        return toRow(t, mode === 'weighted' ? points : count, count, points)
+      })
+      .filter((row) => row.score > 0)
+      .sort((a, b) => b.score - a.score || b.points - a.points)
+      .slice(0, 5)
+  return { right: rank('correct'), wrong: rank('incorrect') }
 }
 
 export interface WeeklyTrendPoint {
